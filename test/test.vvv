@@ -3,7 +3,7 @@ fun main(argc: int) {
     return a*2;
 }
 
-fun fib(n: int) {
+fun fib(n: int) -> int {
     let r: int = 1; 
 
     for i: int in 1..n {

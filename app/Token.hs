@@ -26,6 +26,17 @@ data Operator
   | Assign
   | Equal
   | Range
+  | LessThan
+  | GreaterThan
+  | LessThanOrEqual
+  | GreaterThanOrEqual
+  | NotEqual
+  | And
+  | Or
+  | Not
+  | Xor
+  | Modulo
+  | Arrow
   deriving (Show, Eq)
 
 data Keyword
@@ -76,31 +87,37 @@ identifier = do
   return (c : cs)
 
 operator :: SParser Operator
-operator = do
-  op <- string "+" <|> string "-" <|> string ".." <|> string "*" <|> string "==" <|> string "="
-  return $ case op of
-    "+" -> Add
-    "-" -> Subtract
-    "*" -> Multiply
-    ".." -> Range
-    "==" -> Equal
-    "=" -> Assign
-    _ -> error "unreachable"
+operator =
+  (string "+" $> Add)
+    <|> (string "->" $> Arrow)
+    <|> (string "-" $> Subtract)
+    <|> (string "*" $> Multiply)
+    <|> (string "==" $> Equal)
+    <|> (string "=" $> Assign)
+    <|> (string "<=" $> LessThanOrEqual)
+    <|> (string ">=" $> GreaterThanOrEqual)
+    <|> (string "<" $> LessThan)
+    <|> (string ">" $> GreaterThan)
+    <|> (string "!=" $> NotEqual)
+    <|> (string "&&" $> And)
+    <|> (string "||" $> Or)
+    <|> (string "!" $> Not)
+    <|> (string "^" $> Xor)
+    <|> (string "%" $> Modulo)
+    <|> (string ".." $> Range)
 
 keyword :: SParser Keyword
-keyword = do
-  kw <- (string "let" <|> string "const" <|> string "in" <|> string "fun" <|> string "if" <|> string "else" <|> string "while" <|> string "for" <|> string "return") <* space
-  return $ case kw of
-    "let" -> Let
-    "const" -> Cons
-    "fun" -> Fun
-    "if" -> If
-    "else" -> Else
-    "while" -> While
-    "for" -> For
-    "return" -> Return
-    "in" -> In
-    _ -> error "unreachable"
+keyword =
+  (string "let" $> Let)
+    <|> (string "const" $> Cons)
+    <|> (string "fun" $> Fun)
+    <|> (string "if" $> If)
+    <|> (string "else" $> Else)
+    <|> (string "while" $> While)
+    <|> (string "for" $> For)
+    <|> (string "return" $> Return)
+    <|> (string "in" $> In)
+      <* space
 
 punctuation :: SParser Punctuation
 punctuation =

@@ -6,19 +6,23 @@ import Control.Applicative (Alternative (many, (<|>)), optional)
 import ParserCombinators (Parser (..), satisfy)
 import Token (Keyword (..), Operator (..), Punctuation (..), Token (..))
 
+data Ident = Ident String deriving (Show, Eq)
+
 data Expr
   = BinExpr Expr Operator Expr
   | NumberExpr Int
-  | IdentifierExpr String
-  | Call String [Expr]
+  | IdentifierExpr Ident
+  | Call Ident [Expr]
   deriving (Show, Eq)
 
-data VarDef = VarDef String String deriving (Show, Eq)
+data Ty = Ty String deriving (Show, Eq)
+
+data VarDef = VarDef Ident Ty deriving (Show, Eq)
 
 data Stmt
   = ExprStmt Expr
   | LetStmt VarDef Expr
-  | AssignStmt String Expr
+  | AssignStmt Ident Expr
   | ReturnStmt Expr
   | IfStmt Expr Block (Maybe Block)
   | ForStmt VarDef Expr Expr Block
@@ -26,14 +30,17 @@ data Stmt
 
 data Block = Block [Stmt] deriving (Show, Eq)
 
-data Fun = Fun String [VarDef] Block deriving (Show, Eq)
+data Fun = Fun Ident [VarDef] (Maybe Ty) Block deriving (Show, Eq)
 
 data Program = Program [Fun] deriving (Show, Eq)
 
 type TParser o = Parser [Token] o
 
-identifier :: TParser String
-identifier = Parser (\case Identifier s : rest -> Just (s, rest); _ -> Nothing)
+identifier :: TParser Ident
+identifier = Parser (\case Identifier s : rest -> Just (Ident s, rest); _ -> Nothing)
+
+ty :: TParser Ty
+ty = Parser (\case Identifier s : rest -> Just (Ty s, rest); _ -> Nothing)
 
 number :: TParser Int
 number = Parser (\case Number n : rest -> Just (n, rest); _ -> Nothing)
@@ -73,7 +80,7 @@ expr = eqExpr
         Nothing -> return left
 
 varDef :: TParser VarDef
-varDef = VarDef <$> identifier <*> (satisfy (== Punctuation Colon) *> identifier)
+varDef = VarDef <$> identifier <*> (satisfy (== Punctuation Colon) *> ty)
 
 stmt :: TParser Stmt
 stmt = (letStmt <|> returnStmt <|> ifStmt <|> forStmt <|> assignStmt <|> exprStmt) <* satisfy (== Punctuation SemiColon)
@@ -114,6 +121,7 @@ fun =
   Parser.Fun
     <$> (satisfy (== Keyword Token.Fun) *> identifier)
     <*> (satisfy (== Punctuation LeftParen) *> commaSeparated0 varDef <* satisfy (== Punctuation RightParen))
+    <*> optional (satisfy (== Operator Arrow) *> ty)
     <*> block
 
 program :: TParser Program
