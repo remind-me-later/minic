@@ -1,0 +1,14 @@
+fun main(argc: int) {
+    let a: int = a + 1;
+    return a*2;
+}
+
+fun fib(n: int) {
+    let r: int = 1; 
+
+    for i: int in 1..n {
+        r = i * r;
+    };
+
+    return r;
+}
