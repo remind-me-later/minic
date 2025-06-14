@@ -1,43 +1,15 @@
 module Token
   ( Token (..),
-    Operator (..),
     Keyword (..),
     Punctuation (..),
     tokens,
   )
 where
 
+import Ast (Operator (..))
 import Control.Applicative (Alternative (many, some, (<|>)))
 import Data.Functor (($>))
 import ParserCombinators (Parser, char, satisfy, string)
-
--- Example vvc program:
--- fun main() {
---  let x = 1;
---  let y = 2;
---  let z = x + y;
---  return z;
--- }
-
-data Operator
-  = Add
-  | Subtract
-  | Multiply
-  | Assign
-  | Equal
-  | Range
-  | LessThan
-  | GreaterThan
-  | LessThanOrEqual
-  | GreaterThanOrEqual
-  | NotEqual
-  | And
-  | Or
-  | Not
-  | Xor
-  | Modulo
-  | Arrow
-  deriving (Show, Eq)
 
 data Keyword
   = Let
@@ -89,7 +61,6 @@ identifier = do
 operator :: SParser Operator
 operator =
   (string "+" $> Add)
-    <|> (string "->" $> Arrow)
     <|> (string "-" $> Subtract)
     <|> (string "*" $> Multiply)
     <|> (string "==" $> Equal)
@@ -104,13 +75,12 @@ operator =
     <|> (string "!" $> Not)
     <|> (string "^" $> Xor)
     <|> (string "%" $> Modulo)
-    <|> (string ".." $> Range)
 
 keyword :: SParser Keyword
 keyword =
   (string "let" $> Let)
     <|> (string "const" $> Cons)
-    <|> (string "fun" $> Fun)
+    <|> (string "func" $> Fun)
     <|> (string "if" $> If)
     <|> (string "else" $> Else)
     <|> (string "while" $> While)
