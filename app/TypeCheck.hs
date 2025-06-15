@@ -4,46 +4,126 @@ import Ast
 import Control.Monad (foldM)
 import SymbolTable qualified as ST
 
-typeCheckExpr :: ST.SymbolTable -> Expr -> Either String Ty
-typeCheckExpr table (IdentifierExpr name) =
-  case ST.lookup name table of
-    Just (ST.Variable ty) -> Right ty
+data Annotations = Annotations
+  { currentScope :: AnnotTable,
+    nodeType :: Ty
+  }
+  deriving (Show, Eq)
+
+type AnnotTable = ST.SymbolTable Annotations
+
+type AnnotExpr = Expr Annotations
+
+type AnnotStmt = Stmt Annotations
+
+type AnnotBlock = Block Annotations
+
+type AnnotFun = Fun Annotations
+
+type AnnotProgram = Program Annotations
+
+typeCheckExpr :: AnnotTable -> RawExpr -> Either String AnnotExpr
+typeCheckExpr currentScope ident@(IdentifierExpr _ name) =
+  case ST.lookup name currentScope of
+    Just (ST.Variable ty) -> Right (Annotations {currentScope, nodeType = ty} <$ ident)
     Just (ST.Function _ _) -> Left $ "Cannot use function " ++ name ++ " as variable"
     Nothing -> Left $ "Undefined variable: " ++ name
-typeCheckExpr _ (NumberExpr _) = Right I32
-typeCheckExpr table (BinExpr left op right) = do
-  leftTy <- typeCheckExpr table left
-  rightTy <- typeCheckExpr table right
+typeCheckExpr currentScope num@(NumberExpr _ _) =
+  Right (Annotations {currentScope, nodeType = I32} <$ num)
+typeCheckExpr currentScope bine@(BinExpr _ left op right) = do
+  leftNode <- typeCheckExpr currentScope left
+  rightNode <- typeCheckExpr currentScope right
+  let leftTy = nodeType $ getExprAnnotations leftNode
+      rightTy = nodeType $ getExprAnnotations rightNode
   case op of
-    Add -> if leftTy == I32 && rightTy == I32 then Right I32 else Left "Addition requires both operands to be i32"
-    Subtract -> if leftTy == I32 && rightTy == I32 then Right I32 else Left "Subtraction requires both operands to be i32"
-    Multiply -> if leftTy == I32 && rightTy == I32 then Right I32 else Left "Multiplication requires both operands to be i32"
-    Assign -> if leftTy == I32 && rightTy == I32 then Right I32 else Left "Assignment requires both operands to be i32"
-    Equal -> if leftTy == rightTy then Right Bool else Left $ "Equality check requires both operands to be of the same type: " ++ show leftTy ++ " and " ++ show rightTy
-    LessThan -> if leftTy == I32 && rightTy == I32 then Right Bool else Left "Less than operator requires both operands to be i32"
-    GreaterThan -> if leftTy == I32 && rightTy == I32 then Right Bool else Left "Greater than operator requires both operands to be i32"
-    LessThanOrEqual -> if leftTy == I32 && rightTy == I32 then Right Bool else Left "Less than or equal operator requires both operands to be i32"
-    GreaterThanOrEqual -> if leftTy == I32 && rightTy == I32 then Right Bool else Left "Greater than or equal operator requires both operands to be i32"
-    NotEqual -> if leftTy == rightTy then Right Bool else Left $ "Not equal check requires both operands to be of the same type: " ++ show leftTy ++ " and " ++ show rightTy
-    And -> if leftTy == Bool && rightTy == Bool then Right Bool else Left "And operator requires both operands to be bool"
-    Or -> if leftTy == Bool && rightTy == Bool then Right Bool else Left "Or operator requires both operands to be bool"
-    Not -> if leftTy == Bool then Right Bool else Left $ "Not operator requires operand to be bool but got " ++ show leftTy
-    Xor -> if leftTy == Bool && rightTy == Bool then Right Bool else Left "Xor operator requires both operands to be bool"
-    Modulo -> if leftTy == I32 && rightTy == I32 then Right I32 else Left "Modulo operator requires both operands to be i32"
-typeCheckExpr table (Call callFunName callArgs) = do
-  case ST.lookupFunction callFunName table of
+    Add ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = I32} <$ bine)
+        else Left $ "Type mismatch in addition: " ++ show leftTy ++ " + " ++ show rightTy
+    Subtract ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = I32} <$ bine)
+        else Left $ "Type mismatch in subtraction: " ++ show leftTy ++ " - " ++ show rightTy
+    Multiply ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = I32} <$ bine)
+        else Left $ "Type mismatch in multiplication: " ++ show leftTy ++ " * " ++ show rightTy
+    Equal ->
+      if leftTy == rightTy
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in equality check: " ++ show leftTy ++ " == " ++ show rightTy
+    NotEqual ->
+      if leftTy == rightTy
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in inequality check: " ++ show leftTy ++ " != " ++ show rightTy
+    LessThan ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in less than check: " ++ show leftTy ++ " < " ++ show rightTy
+    GreaterThan ->
+      if leftTy == I32 && rightTy == I32
+        then
+          Right
+            (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in greater than check: " ++ show leftTy ++ " > " ++ show rightTy
+    LessThanOrEqual ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in less than or equal check: " ++ show leftTy ++ " <= " ++ show rightTy
+    GreaterThanOrEqual ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in greater than or equal check: " ++ show leftTy ++ " >= " ++ show rightTy
+    And ->
+      if leftTy == Bool && rightTy == Bool
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in logical AND: " ++ show leftTy ++ " && " ++ show rightTy
+    Or ->
+      if leftTy == Bool && rightTy == Bool
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in logical OR: " ++ show leftTy ++ " || " ++ show rightTy
+    Not ->
+      if leftTy == Bool
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in logical NOT: expected Bool, got " ++ show leftTy
+    Xor ->
+      if leftTy == Bool && rightTy == Bool
+        then Right (Annotations {currentScope, nodeType = Bool} <$ bine)
+        else Left $ "Type mismatch in logical XOR: " ++ show leftTy ++ " ^ " ++ show rightTy
+    Modulo ->
+      if leftTy == I32 && rightTy == I32
+        then Right (Annotations {currentScope, nodeType = I32} <$ bine)
+        else Left $ "Type mismatch in modulo operation: " ++ show leftTy ++ " % " ++ show rightTy
+    _ -> Left $ "Unsupported operator: " ++ show op
+typeCheckExpr currentScope call@(Call _ callFunName callArgs) = do
+  case ST.lookupFunction callFunName currentScope of
     Just (Ast.Fun funName funArgs funRetTy _) -> do
       if length callArgs /= length funArgs
-        then Left $ "Function " ++ funName ++ " expects " ++ show (length funArgs) ++ " arguments, got " ++ show (length callArgs)
+        then
+          Left $
+            "Function "
+              ++ funName
+              ++ " expects "
+              ++ show (length funArgs)
+              ++ " arguments, got "
+              ++ show (length callArgs)
         else do
-          argTypes <- mapM (typeCheckExpr table) callArgs
-          let expectedArgTypes = map (\(VarDef _ ty) -> ty) funArgs
+          argAnnotated <- mapM (typeCheckExpr currentScope) callArgs
+          let argTypes = nodeType . getExprAnnotations <$> argAnnotated
+              expectedArgTypes = (\(VarDef _ ty) -> ty) <$> funArgs
           if argTypes == expectedArgTypes
-            then Right funRetTy
-            else Left $ "Argument type mismatch for function " ++ funName ++ ": expected " ++ show expectedArgTypes ++ ", got " ++ show argTypes
+            then Right (Annotations {currentScope, nodeType = funRetTy} <$ call)
+            else
+              Left $
+                "Argument type mismatch for function "
+                  ++ funName
+                  ++ ": expected "
+                  ++ show expectedArgTypes
+                  ++ ", got "
+                  ++ show argAnnotated
     Nothing -> Left $ "Undefined function: " ++ callFunName
 
-typeCheckStmt :: ST.SymbolTable -> Stmt -> Either String ST.SymbolTable
+typeCheckStmt :: AnnotTable -> RawStmt -> Either String AnnotStmt
 typeCheckStmt table (LetStmt varDef@(VarDef _ ty) expr) = do
   exprTy <- typeCheckExpr table expr
   if exprTy == ty
@@ -84,7 +164,7 @@ typeCheckStmt table (WhileStmt cond body) = do
     then typeCheckBlock table body
     else Left $ "Condition in while statement must be of type Bool, got " ++ show condTy
 
-typeCheckBlock :: ST.SymbolTable -> Block -> Either String ST.SymbolTable
+typeCheckBlock :: AnnotTable -> RawBlock -> Either String AnnotBlock
 typeCheckBlock table (Block stmts) = do
   -- create a new scope for the block
   let newTable = ST.pushScope table
@@ -92,7 +172,7 @@ typeCheckBlock table (Block stmts) = do
     -- pop the scope after processing all statements
     Right (ST.popScope finalTable)
 
-typeCheckFunction :: ST.SymbolTable -> Fun -> Either String ST.SymbolTable
+typeCheckFunction :: AnnotTable -> RawFun -> Either String AnnotFun
 typeCheckFunction table (Fun _ args _ body) = do
   -- create new scope and add function arguments
   let argTable = foldl (\t (VarDef argName argTy) -> ST.insertVar (VarDef argName argTy) t) table args
@@ -101,21 +181,21 @@ typeCheckFunction table (Fun _ args _ body) = do
   -- type check the function body
   ST.popScope <$> typeCheckBlock bodyTable body
 
-typeCheckProgram :: ST.SymbolTable -> Program -> Either String ST.SymbolTable
+typeCheckProgram :: AnnotTable -> RawProgram -> Either String AnnotProgram
 typeCheckProgram table (Program funcs) = do
   funcTable <- foldM typeCheckFunction table funcs
   case ST.lookupFunction "main" funcTable of
     -- Main function must return i32
     Just (Fun _ _ retTy _) ->
-      if retTy == I32
+      if retTy == Void
         then Right funcTable
-        else Left "Main function must return type i32"
-    Nothing -> Left "Main function not found"
+        else Left "Main function must return type Void"
+    Nothing -> Right funcTable
 
-buildFunctionTable :: Program -> ST.SymbolTable
+buildFunctionTable :: RawProgram -> AnnotTable
 buildFunctionTable (Program funcs) = foldl (flip ST.insertFunction) ST.empty funcs
 
-typeCheck :: Program -> Either String ST.SymbolTable
+typeCheck :: RawProgram -> Either String AnnotProgram
 typeCheck program = do
   let initialTable = buildFunctionTable program
   typeCheckProgram initialTable program

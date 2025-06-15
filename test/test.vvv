@@ -1,7 +1,3 @@
-func main(argc: i32) i32 {
-    let a: i32 = 1;
-    return a * fib(2);
-}
 
 func fib(n: i32) i32 {
     let r: i32 = 1; 
