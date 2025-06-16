@@ -11,13 +11,13 @@ module Scope
   )
 where
 
-import Ast (Fun (..), Ident, Ty, VarDef (..))
+import Ast (Fun (..), Ident, Ty (FunTy), VarDef (..))
 import Control.Applicative
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
 
 -- Symbol information stored in the table
-data Symbol = Variable Ty | Function [Ty] Ty
+data Symbol = Symbol {ty :: Ty}
   deriving (Show, Eq)
 
 data Scope = Scope
@@ -48,8 +48,8 @@ openScope scopeName scope = Scope {scopeName, symbols = Map.empty, parent = Just
 
 -- Function-specific operations
 insertFunction :: Fun a -> Scope -> Scope
-insertFunction (Fun name args retTy _) = insert name (Function (map (\(VarDef _ t) -> t) args) retTy)
+insertFunction (Fun _ name args retTy _) = insert name Symbol {ty = FunTy (map (\(VarDef _ t) -> t) args) retTy}
 
 -- Helper function to insert a variable from VarDef
 insertVar :: VarDef -> Scope -> Scope
-insertVar (VarDef name ty) = insert name (Variable ty)
+insertVar (VarDef name ty) = insert name Symbol {ty}

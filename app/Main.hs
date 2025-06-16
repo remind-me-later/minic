@@ -1,6 +1,6 @@
 module Main where
 
-import Parser (program)
+import Parser (parseProgram)
 import ParserCombinators (Parser (parse))
 import System.Environment (getArgs)
 import Token (tokens)
@@ -19,7 +19,7 @@ main = do
   -- putStrLn "Tokens:"
   -- print toks
 
-  ast <- case parse program toks of
+  ast <- case parse parseProgram toks of
     Just (p, _) -> return p
     Nothing -> error "Failed to parse AST"
 

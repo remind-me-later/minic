@@ -1,6 +1,8 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Parser (Expr (..), Stmt (..), Block (..), Fun (..), TParser, Program (..), program) where
+module Parser (parseProgram) where
 
 import Ast (Block (..), Expr (..), Fun (..), Ident, Operator (..), Program (..), RawBlock, RawExpr, RawFun, RawProgram, RawStmt, Stmt (..), Ty (..), VarDef (..))
 import Control.Applicative (Alternative (many, (<|>)), optional)
@@ -10,16 +12,16 @@ import Token qualified as TOK (Keyword (..), Punctuation (..), Token (..))
 
 type TParser o = PC.Parser [TOK.Token] o
 
-identifier :: TParser Ident
-identifier =
+parseIdent :: TParser Ident
+parseIdent =
   PC.Parser
     ( \case
         TOK.Identifier s : rest -> Just (s, rest)
         _ -> Nothing
     )
 
-ty :: TParser Ty
-ty =
+parseTy :: TParser Ty
+parseTy =
   PC.Parser
     ( \case
         TOK.Identifier s : rest ->
@@ -32,16 +34,16 @@ ty =
         _ -> Nothing
     )
 
-number :: TParser Int
-number =
+parseNum :: TParser Int
+parseNum =
   PC.Parser
     ( \case
         TOK.Number n : rest -> Just (n, rest)
         _ -> Nothing
     )
 
-operator :: Operator -> TParser Operator
-operator op =
+parseOp :: Operator -> TParser Operator
+parseOp op =
   PC.Parser
     ( \case
         TOK.Operator op' : rest
@@ -50,119 +52,119 @@ operator op =
         _ -> Nothing
     )
 
-expr :: TParser RawExpr
-expr = eqExpr
+parseExpr :: TParser RawExpr
+parseExpr = parseEqExpr
   where
-    factor = call <|> identifierExpr <|> parenExpr <|> numberExpr
+    parseFactor = parseCall <|> parseIdentifierExpr <|> parseParenExpr <|> parseNumberExpr
       where
-        numberExpr = NumberExpr () <$> number
-        identifierExpr = IdentifierExpr () <$> identifier
-        parenExpr =
+        parseNumberExpr = NumberExpr () <$> parseNum
+        parseIdentifierExpr = IdentifierExpr () <$> parseIdent
+        parseParenExpr =
           PC.satisfy
             (== TOK.Punctuation TOK.LeftParen)
-            *> expr
+            *> parseExpr
             <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
-        call =
+        parseCall =
           Call ()
-            <$> identifier
+            <$> parseIdent
             <*> ( PC.satisfy
                     (== TOK.Punctuation TOK.LeftParen)
-                    *> commaSeparated0 expr
+                    *> parseCommaSeparated0 parseExpr
                     <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
                 )
 
-    mulExpr = do
-      left <- factor
-      maybeOp <- optional (operator Multiply)
+    parseMulExpr = do
+      left <- parseFactor
+      maybeOp <- optional (parseOp Multiply)
       case maybeOp of
-        Just op -> BinExpr () left op <$> mulExpr
+        Just op -> BinExpr () left op <$> parseMulExpr
         Nothing -> return left
 
-    addSubExpr = do
-      left <- mulExpr
+    parseAddSubExpr = do
+      left <- parseMulExpr
       maybeOp <-
         optional
-          ( operator Add
-              <|> operator Subtract
+          ( parseOp Add
+              <|> parseOp Subtract
           )
       case maybeOp of
-        Just op -> BinExpr () left op <$> addSubExpr
+        Just op -> BinExpr () left op <$> parseAddSubExpr
         Nothing -> return left
 
-    eqExpr = do
-      left <- addSubExpr
+    parseEqExpr = do
+      left <- parseAddSubExpr
       maybeOp <-
         optional
-          ( operator Equal
-              <|> operator NotEqual
-              <|> operator LessThan
-              <|> operator GreaterThan
-              <|> operator LessThanOrEqual
-              <|> operator GreaterThanOrEqual
+          ( parseOp Equal
+              <|> parseOp NotEqual
+              <|> parseOp LessThan
+              <|> parseOp GreaterThan
+              <|> parseOp LessThanOrEqual
+              <|> parseOp GreaterThanOrEqual
           )
       case maybeOp of
-        Just op -> BinExpr () left op <$> eqExpr
+        Just op -> BinExpr () left op <$> parseEqExpr
         Nothing -> return left
 
-varDef :: TParser VarDef
-varDef = VarDef <$> identifier <*> (PC.satisfy (== TOK.Punctuation TOK.Colon) *> ty)
+parseVarDef :: TParser VarDef
+parseVarDef = VarDef <$> parseIdent <*> (PC.satisfy (== TOK.Punctuation TOK.Colon) *> parseTy)
 
-stmt :: TParser RawStmt
-stmt = (letStmt <|> returnStmt <|> ifStmt <|> whileStmt <|> assignStmt <|> exprStmt) <* PC.satisfy (== TOK.Punctuation TOK.SemiColon)
+parseStmt :: TParser RawStmt
+parseStmt = (parseLetStmt <|> parseReturnStmt <|> parseIfStmt <|> parseWhileStmt <|> parseAssignStmt <|> parseExprStmt) <* PC.satisfy (== TOK.Punctuation TOK.SemiColon)
   where
-    letStmt =
+    parseLetStmt =
       LetStmt ()
-        <$> (PC.satisfy (== TOK.Keyword TOK.Let) *> varDef <* PC.satisfy (== TOK.Operator Assign))
-        <*> expr
-    assignStmt =
+        <$> (PC.satisfy (== TOK.Keyword TOK.Let) *> parseVarDef <* PC.satisfy (== TOK.Operator Assign))
+        <*> parseExpr
+    parseAssignStmt =
       AssignStmt ()
-        <$> (identifier <* PC.satisfy (== TOK.Operator Assign))
-        <*> expr
-    returnStmt =
+        <$> (parseIdent <* PC.satisfy (== TOK.Operator Assign))
+        <*> parseExpr
+    parseReturnStmt =
       ReturnStmt ()
-        <$> (PC.satisfy (== TOK.Keyword TOK.Return) *> expr)
-    exprStmt = ExprStmt <$> expr
-    ifStmt = do
+        <$> (PC.satisfy (== TOK.Keyword TOK.Return) *> parseExpr)
+    parseExprStmt = ExprStmt <$> parseExpr
+    parseIfStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.If)
-      cond <- expr
-      ifBlock <- block
-      elseBlock <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> block)
+      cond <- parseExpr
+      ifBlock <- parseBlock
+      elseBlock <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> parseBlock)
       return $ IfStmt () cond ifBlock elseBlock
-    whileStmt = do
+    parseWhileStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.While)
-      cond <- expr
-      WhileStmt () cond <$> block
+      cond <- parseExpr
+      WhileStmt () cond <$> parseBlock
 
-block :: TParser RawBlock
-block =
+parseBlock :: TParser RawBlock
+parseBlock =
   Block ()
     <$> ( PC.satisfy
             (== TOK.Punctuation TOK.LeftBrace)
-            *> many stmt
+            *> many parseStmt
             <* PC.satisfy (== TOK.Punctuation TOK.RightBrace)
         )
 
-commaSeparated :: TParser a -> TParser [a]
-commaSeparated p = p `sepBy` PC.satisfy (== TOK.Punctuation TOK.Comma)
+parseCommaSeparated :: TParser a -> TParser [a]
+parseCommaSeparated p = p `parseSepBy` PC.satisfy (== TOK.Punctuation TOK.Comma)
   where
-    sepBy :: TParser a -> TParser b -> TParser [a]
-    sepBy p' sep = (:) <$> p' <*> many (sep *> p')
+    parseSepBy :: TParser a -> TParser b -> TParser [a]
+    parseSepBy p' sep = (:) <$> p' <*> many (sep *> p')
 
-commaSeparated0 :: TParser a -> TParser [a]
-commaSeparated0 p = commaSeparated p <|> pure []
+parseCommaSeparated0 :: TParser a -> TParser [a]
+parseCommaSeparated0 p = parseCommaSeparated p <|> pure []
 
-fun :: TParser RawFun
-fun = do
+parseFun :: TParser RawFun
+parseFun = do
   _ <- PC.satisfy (== TOK.Keyword TOK.Fun)
-  funName <- identifier
-  funArgs <-
+  id <- parseIdent
+  args <-
     PC.satisfy
       (== TOK.Punctuation TOK.LeftParen)
-      *> commaSeparated0 varDef
+      *> parseCommaSeparated0 parseVarDef
       <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
-  funRetTy <- optional ty
-  funBody <- block
-  return Ast.Fun {funName, funArgs, funRetTy = fromMaybe Void funRetTy, funBody}
+  retty <- optional parseTy
+  body <- parseBlock
+  return Ast.Fun {annot = (), id, args, retty = fromMaybe Void retty, body}
 
-program :: TParser RawProgram
-program = Program <$> many fun
+parseProgram :: TParser RawProgram
+parseProgram = Program <$> many parseFun
