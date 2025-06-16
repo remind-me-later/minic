@@ -74,28 +74,37 @@ data VarDef = VarDef Ident Ty deriving (Show, Eq)
 data Stmt a
   = ExprStmt (Expr a)
   | LetStmt
-      { letVarDef :: VarDef,
+      { letAnnot :: a,
+        letVarDef :: VarDef,
         letVarExpr :: Expr a
       }
   | AssignStmt
-      { assignVarName :: Ident,
+      { assignAnnot :: a,
+        assignVarName :: Ident,
         assignExpr :: Expr a
       }
   | ReturnStmt
-      { returnExpr :: Expr a
+      { returnAnnot :: a,
+        returnExpr :: Expr a
       }
   | IfStmt
-      { ifCond :: Expr a,
+      { ifAnnot :: a,
+        ifCond :: Expr a,
         ifBody :: Block a,
         elseBody :: Maybe (Block a)
       }
   | WhileStmt
-      { whileCond :: Expr a,
+      { whileAnnot :: a,
+        whileCond :: Expr a,
         whileBody :: Block a
       }
   deriving (Show, Eq)
 
-newtype Block a = Block [Stmt a] deriving (Show, Eq)
+data Block a = Block
+  { blockAnnot :: a,
+    blockStmts :: [Stmt a]
+  }
+  deriving (Show, Eq)
 
 data Fun a = Fun
   { funName :: Ident,
@@ -126,15 +135,26 @@ instance Functor Expr where
 
 instance Functor Stmt where
   fmap f (ExprStmt expr) = ExprStmt (fmap f expr)
-  fmap f (LetStmt varDef expr) = LetStmt varDef (fmap f expr)
-  fmap f (AssignStmt name expr) = AssignStmt name (fmap f expr)
-  fmap f (ReturnStmt expr) = ReturnStmt (fmap f expr)
-  fmap f (IfStmt cond body elseBody) =
-    IfStmt (fmap f cond) (fmap f body) (fmap (fmap f) elseBody)
-  fmap f (WhileStmt cond body) = WhileStmt (fmap f cond) (fmap f body)
+  fmap f (LetStmt annot varDef expr) =
+    LetStmt (f annot) varDef (fmap f expr)
+  fmap f (AssignStmt annot varName expr) =
+    AssignStmt (f annot) varName (fmap f expr)
+  fmap f (ReturnStmt annot expr) = ReturnStmt (f annot) (fmap f expr)
+  fmap f (IfStmt annot cond body elseBody) =
+    IfStmt
+      (f annot)
+      (fmap f cond)
+      (fmap f body)
+      (fmap (fmap f) elseBody)
+  fmap f (WhileStmt annot cond body) =
+    WhileStmt
+      (f annot)
+      (fmap f cond)
+      (fmap f body)
 
 instance Functor Block where
-  fmap f (Block stmts) = Block (map (fmap f) stmts)
+  fmap f (Block annot stmts) =
+    Block (f annot) (map (fmap f) stmts)
 
 instance Functor Fun where
   fmap f (Fun name args retTy body) =
@@ -151,17 +171,14 @@ getExprAnnotations (Call annot _ _) = annot
 
 getStmtAnnotations :: Stmt a -> a
 getStmtAnnotations (ExprStmt expr) = getExprAnnotations expr
-getStmtAnnotations (LetStmt _ expr) = getExprAnnotations expr
-getStmtAnnotations (AssignStmt _ expr) = getExprAnnotations expr
-getStmtAnnotations (ReturnStmt expr) = getExprAnnotations expr
-getStmtAnnotations (IfStmt cond _ _) = getExprAnnotations cond
-getStmtAnnotations (WhileStmt cond _) = getExprAnnotations cond
+getStmtAnnotations (LetStmt annot _ _) = annot
+getStmtAnnotations (AssignStmt annot _ _) = annot
+getStmtAnnotations (ReturnStmt annot _) = annot
+getStmtAnnotations (IfStmt annot _ _ _) = annot
+getStmtAnnotations (WhileStmt annot _ _) = annot
 
 getBlockAnnotations :: Block a -> a
-getBlockAnnotations (Block stmts) =
-  if null stmts
-    then error "Block has no statements to get annotations from"
-    else getStmtAnnotations (head stmts)
+getBlockAnnotations (Block annot _) = annot
 
 getFunAnnotations :: Fun a -> a
 getFunAnnotations (Fun _ _ _ body) = getBlockAnnotations body

@@ -111,15 +111,15 @@ stmt :: TParser RawStmt
 stmt = (letStmt <|> returnStmt <|> ifStmt <|> whileStmt <|> assignStmt <|> exprStmt) <* PC.satisfy (== TOK.Punctuation TOK.SemiColon)
   where
     letStmt =
-      LetStmt
+      LetStmt ()
         <$> (PC.satisfy (== TOK.Keyword TOK.Let) *> varDef <* PC.satisfy (== TOK.Operator Assign))
         <*> expr
     assignStmt =
-      AssignStmt
+      AssignStmt ()
         <$> (identifier <* PC.satisfy (== TOK.Operator Assign))
         <*> expr
     returnStmt =
-      ReturnStmt
+      ReturnStmt ()
         <$> (PC.satisfy (== TOK.Keyword TOK.Return) *> expr)
     exprStmt = ExprStmt <$> expr
     ifStmt = do
@@ -127,15 +127,15 @@ stmt = (letStmt <|> returnStmt <|> ifStmt <|> whileStmt <|> assignStmt <|> exprS
       cond <- expr
       ifBlock <- block
       elseBlock <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> block)
-      return $ IfStmt cond ifBlock elseBlock
+      return $ IfStmt () cond ifBlock elseBlock
     whileStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.While)
       cond <- expr
-      WhileStmt cond <$> block
+      WhileStmt () cond <$> block
 
 block :: TParser RawBlock
 block =
-  Block
+  Block ()
     <$> ( PC.satisfy
             (== TOK.Punctuation TOK.LeftBrace)
             *> many stmt

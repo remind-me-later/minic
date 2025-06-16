@@ -1,3 +1,6 @@
+func main() {
+    print(fib(3));
+}
 
 func fib(n: i32) i32 {
     let r: i32 = 1; 
@@ -9,3 +12,5 @@ func fib(n: i32) i32 {
 
     return r;
 }
+
+func print(n: i32) {}

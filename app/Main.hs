@@ -16,19 +16,19 @@ main = do
     Just (t, _) -> return t
     Nothing -> error "Failed to parse tokens"
 
-  putStrLn "Tokens:"
-  print toks
+  -- putStrLn "Tokens:"
+  -- print toks
 
   ast <- case parse program toks of
     Just (p, _) -> return p
     Nothing -> error "Failed to parse AST"
 
-  putStrLn "AST:"
-  print ast
+  -- putStrLn "AST:"
+  -- print ast
 
-  symbolTable <- case typeCheck ast of
+  typedAst <- case typeCheck ast of
     Right table -> return table
     Left err -> error $ "Type checking failed: " ++ err
 
-  putStrLn "Symbol Table:"
-  print symbolTable
+  putStrLn "Typed AST:"
+  print typedAst
