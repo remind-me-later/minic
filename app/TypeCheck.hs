@@ -30,18 +30,16 @@ type TypedProgram = Program TypeAnnotations
 
 typeCheckExpr :: Scope.Scope -> RawExpr -> Either String TypedExpr
 typeCheckExpr currentScope expr
-  | IdentifierExpr _ name <- expr =
-      case Scope.lookup name currentScope of
+  | IdentifierExpr {id} <- expr =
+      case Scope.lookup id currentScope of
         Just Scope.Symbol {ty = FunTy _ _} ->
-          Left $ "Cannot use function " ++ name ++ " as variable"
+          Left $ "Cannot use function " ++ id ++ " as variable"
         Just Scope.Symbol {ty} ->
-          Right
-            ( IdentifierExpr {annot = (Annotations {currentScope, nodeType = ty}), ident = name}
-            )
-        Nothing -> Left $ "Undefined variable: " ++ name
-  | NumberExpr _ n <- expr =
-      Right (NumberExpr {annot = Annotations {currentScope, nodeType = I32}, numLiteral = n})
-  | BinExpr _ left op right <- expr = do
+          Right (Annotations {currentScope, nodeType = ty} <$ expr)
+        Nothing -> Left $ "Undefined variable: " ++ id
+  | NumberExpr {} <- expr =
+      Right (Annotations {currentScope, nodeType = I32} <$ expr)
+  | BinExpr {left, op, right} <- expr = do
       leftNode <- typeCheckExpr currentScope left
       rightNode <- typeCheckExpr currentScope right
       let leftTy = (annotation leftNode).nodeType
@@ -118,20 +116,20 @@ typeCheckExpr currentScope expr
         Modulo ->
           Left $ "Type mismatch in modulo operation: " ++ show leftTy ++ " % " ++ show rightTy
         _ -> Left $ "Unsupported operator: " ++ show op
-  | Call _ callFunName callArgs <- expr =
-      case Scope.lookup callFunName currentScope of
+  | Call {id, args} <- expr =
+      case Scope.lookup id currentScope of
         Just Scope.Symbol {ty = FunTy funArgTys funRetTy} ->
-          if length callArgs /= length funArgTys
+          if length args /= length funArgTys
             then
               Left $
                 "Function "
-                  ++ callFunName
+                  ++ id
                   ++ " expects "
                   ++ show (length funArgTys)
                   ++ " arguments, got "
-                  ++ show (length callArgs)
+                  ++ show (length args)
             else do
-              argAnnotated <- mapM (typeCheckExpr currentScope) callArgs
+              argAnnotated <- mapM (typeCheckExpr currentScope) args
               let argTypes = (\a -> (annotation a).nodeType) <$> argAnnotated
               if argTypes == funArgTys
                 then
@@ -140,25 +138,25 @@ typeCheckExpr currentScope expr
                         { annot =
                             ( Annotations {currentScope, nodeType = funRetTy}
                             ),
-                          funCallName = callFunName,
-                          funCallArgs = argAnnotated
+                          id,
+                          args = argAnnotated
                         }
                     )
                 else
                   Left $
                     "Argument type mismatch for function "
-                      ++ callFunName
+                      ++ id
                       ++ ": expected "
                       ++ show funArgTys
                       ++ ", got "
                       ++ show argAnnotated
         Just Scope.Symbol {ty} ->
-          Left $ "Cannot call variable of type: " ++ show ty ++ " as function: " ++ callFunName
-        Nothing -> Left $ "Undefined function: " ++ callFunName
+          Left $ "Cannot call variable of type: " ++ show ty ++ " as function: " ++ id
+        Nothing -> Left $ "Undefined function: " ++ id
 
 typeCheckStmt :: Scope.Scope -> RawStmt -> Either String TypedStmt
 typeCheckStmt currentScope stmt
-  | LetStmt _ v@(VarDef _ ty) expr <- stmt = do
+  | LetStmt {vardef = v@(VarDef _ ty), expr} <- stmt = do
       expr <- typeCheckExpr currentScope expr
       let exprTy = (annotation expr).nodeType
       if exprTy == ty
@@ -175,21 +173,21 @@ typeCheckStmt currentScope stmt
                 }
             )
         else Left $ "Type mismatch: expected " ++ show ty ++ ", got " ++ show exprTy
-  | AssignStmt _ name expr <- stmt = do
-      case Scope.lookup name currentScope of
-        Just Scope.Symbol {ty = FunTy _ _} -> Left $ "Cannot assign to function: " ++ name
+  | AssignStmt {id, expr} <- stmt = do
+      case Scope.lookup id currentScope of
+        Just Scope.Symbol {ty = FunTy _ _} -> Left $ "Cannot assign to function: " ++ id
         Just Scope.Symbol {ty = expectedTy} -> do
           exprAnnot <- typeCheckExpr currentScope expr
           let exprTy = (annotation exprAnnot).nodeType
           if exprTy == expectedTy
             then Right (Annotations {currentScope, nodeType = Void} <$ stmt)
             else Left $ "Type mismatch in assignment: expected " ++ show expectedTy ++ ", got " ++ show exprTy
-        Nothing -> Left $ "Undefined variable: " ++ name
-  | ExprStmt expr <- stmt = do
+        Nothing -> Left $ "Undefined variable: " ++ id
+  | ExprStmt {expr} <- stmt = do
       nodeAnnot <- typeCheckExpr currentScope expr
       let expType = (annotation nodeAnnot).nodeType
       Right (Annotations {currentScope, nodeType = expType} <$ stmt)
-  | ReturnStmt _ expr <- stmt = do
+  | ReturnStmt {expr} <- stmt = do
       exprAnnot <- typeCheckExpr currentScope expr
       let expTy = (annotation exprAnnot).nodeType
       case Scope.lookup currentScope.scopeName currentScope of
@@ -201,12 +199,12 @@ typeCheckStmt currentScope stmt
               Left $ "Return expression type: " ++ show expTy ++ "doesn't match function return type: " ++ show retTy
         Just _ -> Left "Cannot return from a variable"
         Nothing -> Left "unreachable: undefined function"
-  | IfStmt _ cond body elseBody <- stmt = do
+  | IfStmt {cond, ifBody, elseBody} <- stmt = do
       cond <- typeCheckExpr currentScope cond
       let condTy = (annotation cond).nodeType
       if condTy == Bool
         then do
-          ifBody <- typeCheckBlock currentScope body
+          ifBody <- typeCheckBlock currentScope ifBody
           case elseBody of
             Just elseBlock ->
               case typeCheckBlock currentScope elseBlock of
@@ -230,7 +228,7 @@ typeCheckStmt currentScope stmt
                     }
                 )
         else Left $ "Condition in if statement must be of type Bool, got " ++ show condTy
-  | WhileStmt _ cond body <- stmt = do
+  | WhileStmt {cond, body} <- stmt = do
       whileCond <- typeCheckExpr currentScope cond
       let condTy = (annotation whileCond).nodeType
       if condTy == Bool
@@ -246,9 +244,9 @@ typeCheckStmt currentScope stmt
         else Left $ "Condition in while statement must be of type Bool, got " ++ show condTy
 
 typeCheckBlock :: Scope.Scope -> RawBlock -> Either String TypedBlock
-typeCheckBlock table (Block _ stmts) = do
+typeCheckBlock currentScope Block {stmts} = do
   -- create a new scope for the block
-  let newTable = Scope.openScope "block" table
+  let newTable = Scope.openScope "block" currentScope
   -- type check each statement in the block
   annotatedStmts <-
     foldM
@@ -304,7 +302,7 @@ typeCheckFunction currentScope Fun {id, args, retty, body = Block {stmts}} = do
     )
 
 typeCheckProgram :: Scope.Scope -> RawProgram -> Either String TypedProgram
-typeCheckProgram table (Program funcs) = do
+typeCheckProgram table Program {funcs} = do
   funcTable <- mapM (typeCheckFunction table) funcs
   case Scope.lookup "main" table of
     -- Main function must return i32
@@ -316,7 +314,7 @@ typeCheckProgram table (Program funcs) = do
     Nothing -> Right (Program funcTable)
 
 buildFunctionTable :: RawProgram -> Scope.Scope
-buildFunctionTable (Program funcs) =
+buildFunctionTable Program {funcs} =
   foldl (flip Scope.insertFunction) Scope.newGlobalScope funcs
 
 typeCheck :: RawProgram -> Either String TypedProgram

@@ -43,22 +43,22 @@ data Operator
 data Expr a
   = BinExpr
       { annot :: a,
-        leftExpr :: Expr a,
-        binOp :: Operator,
-        rightExpr :: Expr a
+        left :: Expr a,
+        op :: Operator,
+        right :: Expr a
       }
   | NumberExpr
       { annot :: a,
-        numLiteral :: Int
+        num :: Int
       }
   | IdentifierExpr
       { annot :: a,
-        ident :: Ident
+        id :: Ident
       }
   | Call
       { annot :: a,
-        funCallName :: Ident,
-        funCallArgs :: [Expr a]
+        id :: Ident,
+        args :: [Expr a]
       }
   deriving (Show, Eq)
 
@@ -72,7 +72,7 @@ data Ty
 data VarDef = VarDef Ident Ty deriving (Show, Eq)
 
 data Stmt a
-  = ExprStmt (Expr a)
+  = ExprStmt {expr :: Expr a}
   | LetStmt
       { annot :: a,
         vardef :: VarDef,
@@ -115,7 +115,7 @@ data Fun a = Fun
   }
   deriving (Show, Eq)
 
-newtype Program a = Program [Fun a] deriving (Show, Eq)
+newtype Program a = Program {funcs :: [Fun a]} deriving (Show, Eq)
 
 type RawExpr = Expr ()
 
@@ -129,10 +129,10 @@ type RawProgram = Program ()
 
 instance Functor Expr where
   fmap f (BinExpr annot left op right) =
-    BinExpr {annot = f annot, leftExpr = fmap f left, binOp = op, rightExpr = fmap f right}
-  fmap f (NumberExpr annot num) = NumberExpr {annot = f annot, numLiteral = num}
-  fmap f (IdentifierExpr annot ident) = IdentifierExpr (f annot) ident
-  fmap f (Call annot name args) = Call (f annot) name (map (fmap f) args)
+    BinExpr {annot = f annot, left = fmap f left, op = op, right = fmap f right}
+  fmap f (NumberExpr annot num) = NumberExpr {annot = f annot, num}
+  fmap f (IdentifierExpr annot id) = IdentifierExpr {annot = f annot, id}
+  fmap f (Call annot id args) = Call {annot = f annot, id, args = map (fmap f) args}
 
 instance Functor Stmt where
   fmap f (ExprStmt expr) = ExprStmt (fmap f expr)
@@ -155,7 +155,7 @@ instance Functor Fun where
     Fun {annot = f annot, id = id, args = args, retty = retty, body = fmap f body}
 
 instance Functor Program where
-  fmap f (Program funcs) = Program (map (fmap f) funcs)
+  fmap f (Program funcs) = Program {funcs = map (fmap f) funcs}
 
 class Annotated t a where
   annotation :: t a -> a
@@ -168,13 +168,13 @@ instance Annotated Expr a where
   annotation (Call annot _ _) = annot
 
   setAnnotation (BinExpr _ left op right) newAnnot =
-    BinExpr {annot = newAnnot, leftExpr = left, binOp = op, rightExpr = right}
+    BinExpr {annot = newAnnot, left = left, op = op, right = right}
   setAnnotation (NumberExpr _ num) newAnnot =
-    NumberExpr {annot = newAnnot, numLiteral = num}
-  setAnnotation (IdentifierExpr _ ident) newAnnot =
-    IdentifierExpr {annot = newAnnot, ident = ident}
+    NumberExpr {annot = newAnnot, num = num}
+  setAnnotation (IdentifierExpr _ id) newAnnot =
+    IdentifierExpr {annot = newAnnot, id}
   setAnnotation (Call _ name args) newAnnot =
-    Call {annot = newAnnot, funCallName = name, funCallArgs = args}
+    Call {annot = newAnnot, id = name, args = args}
 
 instance Annotated Stmt a where
   annotation (ExprStmt expr) = annotation expr
@@ -185,7 +185,7 @@ instance Annotated Stmt a where
   annotation (WhileStmt annot _ _) = annot
 
   setAnnotation (ExprStmt expr) newAnnot =
-    ExprStmt (setAnnotation expr newAnnot)
+    ExprStmt {expr = setAnnotation expr newAnnot}
   setAnnotation (LetStmt _ varDef expr) newAnnot =
     LetStmt {annot = newAnnot, vardef = varDef, expr = setAnnotation expr newAnnot}
   setAnnotation (AssignStmt _ varName expr) newAnnot =
