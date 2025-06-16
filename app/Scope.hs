@@ -1,3 +1,7 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 module Scope
   ( Symbol (..),
     Scope (..),
@@ -21,35 +25,35 @@ data Symbol = Symbol {ty :: Ty}
   deriving (Show, Eq)
 
 data Scope = Scope
-  { scopeName :: String, -- Name of the scope (for debugging)
+  { name :: String, -- Name of the scope (for debugging)
     symbols :: Map.Map Ident Symbol, -- Symbols in this scope
     parent :: Maybe Scope -- Optional parent scope for nested scopes
   }
   deriving (Eq)
 
 instance Show Scope where
-  show scope = "Scope: " ++ scopeName scope ++ ", Symbols: " ++ show (Map.keys (symbols scope))
+  show scope = "Scope: " ++ scope.name ++ ", Symbols: " ++ show (Map.keys scope.symbols)
 
 newGlobalScope :: Scope
-newGlobalScope = Scope {scopeName = "global", symbols = Map.empty, parent = Nothing}
+newGlobalScope = Scope {name = "global", symbols = Map.empty, parent = Nothing}
 
 insert :: Ident -> Symbol -> Scope -> Scope
-insert name symbol scope =
-  scope {symbols = Map.insert name symbol (symbols scope)}
+insert id symbol scope =
+  scope {symbols = Map.insert id symbol scope.symbols}
 
 lookup :: Ident -> Scope -> Maybe Symbol
-lookup name scope =
-  Map.lookup name (symbols scope) <|> case parent scope of
-    Just parentScope -> lookup name parentScope -- Search in parent scope if exists
+lookup id scope =
+  Map.lookup id scope.symbols <|> case scope.parent of
+    Just parentScope -> lookup id parentScope -- Search in parent scope if exists
     Nothing -> Nothing -- No parent scope, return Nothing
 
 openScope :: String -> Scope -> Scope
-openScope scopeName scope = Scope {scopeName, symbols = Map.empty, parent = Just scope}
+openScope name scope = Scope {name, symbols = Map.empty, parent = Just scope}
 
 -- Function-specific operations
-insertFunction :: Fun a -> Scope -> Scope
-insertFunction (Fun _ name args retTy _) = insert name Symbol {ty = FunTy (map (\(VarDef _ t) -> t) args) retTy}
+insertFunction :: Fun a b -> Scope -> Scope
+insertFunction Fun {id, args, retty} = insert id Symbol {ty = FunTy ((\VarDef {ty} -> ty) <$> args) retty}
 
 -- Helper function to insert a variable from VarDef
 insertVar :: VarDef -> Scope -> Scope
-insertVar (VarDef name ty) = insert name Symbol {ty}
+insertVar VarDef {id, ty} = insert id Symbol {ty}

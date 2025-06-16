@@ -16,7 +16,7 @@ module Ast
     RawBlock,
     RawFun,
     RawProgram,
-    Annotated (..),
+    exprAnnot,
   )
 where
 
@@ -40,25 +40,25 @@ data Operator
   | Modulo
   deriving (Show, Eq)
 
-data Expr a
+data Expr ea
   = BinExpr
-      { annot :: a,
-        left :: Expr a,
+      { annot :: ea,
+        left :: Expr ea,
         op :: Operator,
-        right :: Expr a
+        right :: Expr ea
       }
   | NumberExpr
-      { annot :: a,
+      { annot :: ea,
         num :: Int
       }
   | IdentifierExpr
-      { annot :: a,
+      { annot :: ea,
         id :: Ident
       }
   | Call
-      { annot :: a,
+      { annot :: ea,
         id :: Ident,
-        args :: [Expr a]
+        args :: [Expr ea]
       }
   deriving (Show, Eq)
 
@@ -66,145 +66,73 @@ data Ty
   = I32
   | Bool
   | Void
-  | FunTy [Ty] Ty
+  | FunTy
+      { argtys :: [Ty],
+        retty :: Ty
+      }
   deriving (Show, Eq)
 
-data VarDef = VarDef Ident Ty deriving (Show, Eq)
+data VarDef = VarDef
+  { id :: Ident,
+    ty :: Ty
+  }
+  deriving (Show, Eq)
 
-data Stmt a
-  = ExprStmt {expr :: Expr a}
+data Stmt ea ba
+  = ExprStmt {expr :: Expr ea}
   | LetStmt
-      { annot :: a,
-        vardef :: VarDef,
-        expr :: Expr a
+      { vardef :: VarDef,
+        expr :: Expr ea
       }
   | AssignStmt
-      { annot :: a,
-        id :: Ident,
-        expr :: Expr a
+      { id :: Ident,
+        expr :: Expr ea
       }
   | ReturnStmt
-      { annot :: a,
-        expr :: Expr a
+      { expr :: Expr ea
       }
   | IfStmt
-      { annot :: a,
-        cond :: Expr a,
-        ifBody :: Block a,
-        elseBody :: Maybe (Block a)
+      { cond :: Expr ea,
+        ifBody :: Block ea ba,
+        elseBody :: Maybe (Block ea ba)
       }
   | WhileStmt
-      { annot :: a,
-        cond :: Expr a,
-        body :: Block a
+      { cond :: Expr ea,
+        body :: Block ea ba
       }
   deriving (Show, Eq)
 
-data Block a = Block
-  { annot :: a,
-    stmts :: [Stmt a]
+data Block ea ba = Block
+  { annot :: ba,
+    stmts :: [Stmt ea ba]
   }
   deriving (Show, Eq)
 
-data Fun a = Fun
-  { annot :: a,
-    id :: Ident,
+data Fun a ba = Fun
+  { id :: Ident,
     args :: [VarDef],
     retty :: Ty,
-    body :: Block a
+    body :: Block a ba
   }
   deriving (Show, Eq)
 
-newtype Program a = Program {funcs :: [Fun a]} deriving (Show, Eq)
+newtype Program a ba = Program
+  { funcs :: [Fun a ba]
+  }
+  deriving (Show, Eq)
 
 type RawExpr = Expr ()
 
-type RawStmt = Stmt ()
+type RawStmt = Stmt () ()
 
-type RawBlock = Block ()
+type RawBlock = Block () ()
 
-type RawFun = Fun ()
+type RawFun = Fun () ()
 
-type RawProgram = Program ()
+type RawProgram = Program () ()
 
-instance Functor Expr where
-  fmap f (BinExpr annot left op right) =
-    BinExpr {annot = f annot, left = fmap f left, op = op, right = fmap f right}
-  fmap f (NumberExpr annot num) = NumberExpr {annot = f annot, num}
-  fmap f (IdentifierExpr annot id) = IdentifierExpr {annot = f annot, id}
-  fmap f (Call annot id args) = Call {annot = f annot, id, args = map (fmap f) args}
-
-instance Functor Stmt where
-  fmap f (ExprStmt expr) = ExprStmt (fmap f expr)
-  fmap f (LetStmt annot varDef expr) =
-    LetStmt {annot = f annot, vardef = varDef, expr = fmap f expr}
-  fmap f (AssignStmt annot varName expr) =
-    AssignStmt {annot = f annot, id = varName, expr = fmap f expr}
-  fmap f (ReturnStmt annot expr) = ReturnStmt {annot = f annot, expr = fmap f expr}
-  fmap f (IfStmt annot cond body elseBody) =
-    IfStmt {annot = f annot, cond = fmap f cond, ifBody = fmap f body, elseBody = fmap (fmap f) elseBody}
-  fmap f (WhileStmt annot cond body) =
-    WhileStmt {annot = f annot, cond = fmap f cond, body = fmap f body}
-
-instance Functor Block where
-  fmap f (Block annot stmts) =
-    Block {annot = f annot, stmts = map (fmap f) stmts}
-
-instance Functor Fun where
-  fmap f (Fun annot id args retty body) =
-    Fun {annot = f annot, id = id, args = args, retty = retty, body = fmap f body}
-
-instance Functor Program where
-  fmap f (Program funcs) = Program {funcs = map (fmap f) funcs}
-
-class Annotated t a where
-  annotation :: t a -> a
-  setAnnotation :: t a -> a -> t a
-
-instance Annotated Expr a where
-  annotation (BinExpr annot _ _ _) = annot
-  annotation (NumberExpr annot _) = annot
-  annotation (IdentifierExpr annot _) = annot
-  annotation (Call annot _ _) = annot
-
-  setAnnotation (BinExpr _ left op right) newAnnot =
-    BinExpr {annot = newAnnot, left = left, op = op, right = right}
-  setAnnotation (NumberExpr _ num) newAnnot =
-    NumberExpr {annot = newAnnot, num = num}
-  setAnnotation (IdentifierExpr _ id) newAnnot =
-    IdentifierExpr {annot = newAnnot, id}
-  setAnnotation (Call _ name args) newAnnot =
-    Call {annot = newAnnot, id = name, args = args}
-
-instance Annotated Stmt a where
-  annotation (ExprStmt expr) = annotation expr
-  annotation (LetStmt annot _ _) = annot
-  annotation (AssignStmt annot _ _) = annot
-  annotation (ReturnStmt annot _) = annot
-  annotation (IfStmt annot _ _ _) = annot
-  annotation (WhileStmt annot _ _) = annot
-
-  setAnnotation (ExprStmt expr) newAnnot =
-    ExprStmt {expr = setAnnotation expr newAnnot}
-  setAnnotation (LetStmt _ varDef expr) newAnnot =
-    LetStmt {annot = newAnnot, vardef = varDef, expr = setAnnotation expr newAnnot}
-  setAnnotation (AssignStmt _ varName expr) newAnnot =
-    AssignStmt {annot = newAnnot, id = varName, expr = setAnnotation expr newAnnot}
-  setAnnotation (ReturnStmt _ expr) newAnnot =
-    ReturnStmt {annot = newAnnot, expr = setAnnotation expr newAnnot}
-  setAnnotation (IfStmt _ cond body elseBody) newAnnot =
-    IfStmt {annot = newAnnot, cond = setAnnotation cond newAnnot, ifBody = body, elseBody = elseBody}
-  setAnnotation (WhileStmt _ cond body) newAnnot =
-    WhileStmt {annot = newAnnot, cond = setAnnotation cond newAnnot, body = body}
-
-instance Annotated Block a where
-  annotation (Block annot _) = annot
-
-  setAnnotation (Block _ stmts) newAnnot =
-    Block {annot = newAnnot, stmts}
-
-instance Annotated Fun a where
-  annotation (Fun annot _ _ _ _) = annot
-
-  setAnnotation (Fun _ id args retty body) newAnnot =
-    Fun {annot = newAnnot, id = id, args = args, retty = retty, body}
+exprAnnot :: Expr ea -> ea
+exprAnnot (BinExpr {annot}) = annot
+exprAnnot (NumberExpr {annot}) = annot
+exprAnnot (IdentifierExpr {annot}) = annot
+exprAnnot (Call {annot}) = annot

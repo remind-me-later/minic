@@ -107,33 +107,45 @@ parseExpr = parseEqExpr
         Nothing -> return left
 
 parseVarDef :: TParser VarDef
-parseVarDef = VarDef <$> parseIdent <*> (PC.satisfy (== TOK.Punctuation TOK.Colon) *> parseTy)
+parseVarDef =
+  VarDef
+    <$> parseIdent
+    <*> (PC.satisfy (== TOK.Punctuation TOK.Colon) *> parseTy)
 
 parseStmt :: TParser RawStmt
-parseStmt = (parseLetStmt <|> parseReturnStmt <|> parseIfStmt <|> parseWhileStmt <|> parseAssignStmt <|> parseExprStmt) <* PC.satisfy (== TOK.Punctuation TOK.SemiColon)
+parseStmt =
+  ( parseLetStmt
+      <|> parseReturnStmt
+      <|> parseIfStmt
+      <|> parseWhileStmt
+      <|> parseAssignStmt
+      <|> parseExprStmt
+  )
+    <* PC.satisfy (== TOK.Punctuation TOK.SemiColon)
   where
     parseLetStmt =
-      LetStmt ()
+      LetStmt
         <$> (PC.satisfy (== TOK.Keyword TOK.Let) *> parseVarDef <* PC.satisfy (== TOK.Operator Assign))
         <*> parseExpr
     parseAssignStmt =
-      AssignStmt ()
+      AssignStmt
         <$> (parseIdent <* PC.satisfy (== TOK.Operator Assign))
         <*> parseExpr
     parseReturnStmt =
-      ReturnStmt ()
+      ReturnStmt
         <$> (PC.satisfy (== TOK.Keyword TOK.Return) *> parseExpr)
     parseExprStmt = ExprStmt <$> parseExpr
     parseIfStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.If)
       cond <- parseExpr
-      ifBlock <- parseBlock
-      elseBlock <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> parseBlock)
-      return $ IfStmt () cond ifBlock elseBlock
+      ifBody <- parseBlock
+      elseBody <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> parseBlock)
+      return $ IfStmt {cond, ifBody, elseBody}
     parseWhileStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.While)
       cond <- parseExpr
-      WhileStmt () cond <$> parseBlock
+      body <- parseBlock
+      return WhileStmt {cond, body}
 
 parseBlock :: TParser RawBlock
 parseBlock =
@@ -164,7 +176,7 @@ parseFun = do
       <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
   retty <- optional parseTy
   body <- parseBlock
-  return Ast.Fun {annot = (), id, args, retty = fromMaybe Void retty, body}
+  return Ast.Fun {id, args, retty = fromMaybe Void retty, body}
 
 parseProgram :: TParser RawProgram
 parseProgram = Program <$> many parseFun
