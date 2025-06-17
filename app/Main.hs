@@ -1,10 +1,11 @@
 module Main where
 
+import Ir (programToMir)
 import Parser (parseProgram)
 import ParserCombinators (Parser (parse))
 import System.Environment (getArgs)
 import Token (tokens)
-import TypeCheck (typeCheck)
+import TypeCheck (typeProgram)
 
 main :: IO ()
 main = do
@@ -26,9 +27,13 @@ main = do
   -- putStrLn "AST:"
   -- print ast
 
-  typedAst <- case typeCheck ast of
+  typedAst <- case typeProgram ast of
     Right table -> return table
     Left err -> error $ "Type checking failed: " ++ err
 
-  putStrLn "Typed AST:"
-  print typedAst
+  -- putStrLn "Typed AST:"
+  -- print typedAst
+
+  let mirProgram = programToMir typedAst
+  putStrLn "MIR Program:"
+  print mirProgram

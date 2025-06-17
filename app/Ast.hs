@@ -22,6 +22,16 @@ where
 
 type Ident = String
 
+data Ty
+  = Int
+  | Bool
+  | Void
+  | FunTy
+      { argtys :: [Ty],
+        retty :: Ty
+      }
+  deriving (Show, Eq)
+
 data Operator
   = Add
   | Subtract
@@ -38,7 +48,24 @@ data Operator
   | Not
   | Xor
   | Modulo
-  deriving (Show, Eq)
+  deriving (Eq)
+
+instance Show Operator where
+  show Add = "+"
+  show Subtract = "-"
+  show Multiply = "*"
+  show Assign = "="
+  show Equal = "=="
+  show LessThan = "<"
+  show GreaterThan = ">"
+  show LessThanOrEqual = "<="
+  show GreaterThanOrEqual = ">="
+  show NotEqual = "!="
+  show And = "&&"
+  show Or = "||"
+  show Not = "!"
+  show Xor = "^"
+  show Modulo = "%"
 
 data Expr ea
   = BinExpr
@@ -59,16 +86,6 @@ data Expr ea
       { annot :: ea,
         id :: Ident,
         args :: [Expr ea]
-      }
-  deriving (Show, Eq)
-
-data Ty
-  = I32
-  | Bool
-  | Void
-  | FunTy
-      { argtys :: [Ty],
-        retty :: Ty
       }
   deriving (Show, Eq)
 

@@ -2,10 +2,34 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module TypeCheck (typeCheck) where
+module TypeCheck
+  ( typeProgram,
+    TypedProgram,
+    TypedFun,
+    TypedBlock,
+    TypedStmt,
+    TypedExpr,
+  )
+where
 
 import Ast
+  ( Block (..),
+    Expr (..),
+    Fun (..),
+    Operator (..),
+    Program (..),
+    RawBlock,
+    RawExpr,
+    RawFun,
+    RawProgram,
+    RawStmt,
+    Stmt (..),
+    Ty (..),
+    VarDef (..),
+    exprAnnot,
+  )
 import Control.Monad (foldM)
+import Data.Map qualified as Map
 import Scope qualified
 
 type TypedExpr = Expr Ty
@@ -18,17 +42,17 @@ type TypedFun = Fun Ty Scope.Scope
 
 type TypedProgram = Program Ty Scope.Scope
 
-typeCheckOp :: Operator -> Ty -> Ty -> Either String Ty
-typeCheckOp op lty rty =
+typeOp :: Operator -> Ty -> Ty -> Either String Ty
+typeOp op lty rty =
   case op of
     Add
-      | lty == I32 && rty == I32 -> Right I32
+      | lty == Int && rty == Int -> Right Int
     Add -> Left $ "Type mismatch in addition: " ++ show lty ++ " + " ++ show rty
     Subtract
-      | lty == I32 && rty == I32 -> Right I32
+      | lty == Int && rty == Int -> Right Int
     Subtract -> Left $ "Type mismatch in subtraction: " ++ show lty ++ " - " ++ show rty
     Multiply
-      | lty == I32 && rty == I32 -> Right I32
+      | lty == Int && rty == Int -> Right Int
     Multiply -> Left $ "Type mismatch in multiplication: " ++ show lty ++ " * " ++ show rty
     Equal
       | lty == rty -> Right Bool
@@ -37,16 +61,16 @@ typeCheckOp op lty rty =
       | lty == rty -> Right Bool
     NotEqual -> Left $ "Type mismatch in inequality check: " ++ show lty ++ " != " ++ show rty
     LessThan
-      | lty == I32 && rty == I32 -> Right Bool
+      | lty == Int && rty == Int -> Right Bool
     LessThan -> Left $ "Type mismatch in less than check: " ++ show lty ++ " < " ++ show rty
     GreaterThan
-      | lty == I32 && rty == I32 -> Right Bool
+      | lty == Int && rty == Int -> Right Bool
     GreaterThan -> Left $ "Type mismatch in greater than check: " ++ show lty ++ " > " ++ show rty
     LessThanOrEqual
-      | lty == I32 && rty == I32 -> Right Bool
+      | lty == Int && rty == Int -> Right Bool
     LessThanOrEqual -> Left $ "Type mismatch in less than or equal check: " ++ show lty ++ " <= " ++ show rty
     GreaterThanOrEqual
-      | lty == I32 && rty == I32 -> Right Bool
+      | lty == Int && rty == Int -> Right Bool
     GreaterThanOrEqual -> Left $ "Type mismatch in greater than or equal check: " ++ show lty ++ " >= " ++ show rty
     And
       | lty == Bool && rty == Bool -> Right Bool
@@ -61,35 +85,27 @@ typeCheckOp op lty rty =
       | lty == Bool && rty == Bool -> Right Bool
     Xor -> Left $ "Type mismatch in logical XOR: " ++ show lty ++ " ^ " ++ show rty
     Modulo
-      | lty == I32 && rty == I32 -> Right I32
+      | lty == Int && rty == Int -> Right Int
     Modulo -> Left $ "Type mismatch in modulo operation: " ++ show lty ++ " % " ++ show rty
     _ -> Left $ "Unsupported operator: " ++ show op
 
-typeCheckExpr :: Scope.Scope -> RawExpr -> Either String TypedExpr
-typeCheckExpr curScope expr
+typeExpr :: Scope.Scope -> RawExpr -> Either String TypedExpr
+typeExpr curScope expr
   | IdentifierExpr {id} <- expr =
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {}} ->
           Left $ "Cannot use function " ++ id ++ " as variable"
         Just Scope.Symbol {ty} ->
-          Right
-            IdentifierExpr
-              { annot = ty,
-                id
-              }
+          Right IdentifierExpr {annot = ty, id}
         Nothing -> Left $ "Undefined variable: " ++ id
   | NumberExpr {num} <- expr =
-      Right
-        NumberExpr
-          { annot = I32,
-            num
-          }
+      Right NumberExpr {annot = Int, num}
   | BinExpr {left, op, right} <- expr = do
-      left <- typeCheckExpr curScope left
-      right <- typeCheckExpr curScope right
+      left <- typeExpr curScope left
+      right <- typeExpr curScope right
       let lty = exprAnnot left
           rty = exprAnnot right
-      case typeCheckOp op lty rty of
+      case typeOp op lty rty of
         Right ty -> Right BinExpr {annot = ty, left, op, right}
         Left err -> Left err
   | Call {id, args} <- expr =
@@ -105,16 +121,10 @@ typeCheckExpr curScope expr
                   ++ " arguments, got "
                   ++ show (length args)
             else do
-              argAnnotated <- mapM (typeCheckExpr curScope) args
-              if (exprAnnot <$> argAnnotated) == argtys
+              args <- mapM (typeExpr curScope) args
+              if (exprAnnot <$> args) == argtys
                 then
-                  Right
-                    ( Call
-                        { annot = retty,
-                          id,
-                          args = argAnnotated
-                        }
-                    )
+                  Right Call {annot = retty, id, args}
                 else
                   Left $
                     "Argument type mismatch for function "
@@ -122,15 +132,15 @@ typeCheckExpr curScope expr
                       ++ ": expected "
                       ++ show argtys
                       ++ ", got "
-                      ++ show argAnnotated
+                      ++ show args
         Just Scope.Symbol {ty} ->
           Left $ "Cannot call variable of type: " ++ show ty ++ " as function: " ++ id
         Nothing -> Left $ "Undefined function: " ++ id
 
-typeCheckStmt :: Scope.Scope -> RawStmt -> Either String (TypedStmt, Scope.Scope)
-typeCheckStmt curScope stmt
+typeStmt :: Scope.Scope -> RawStmt -> Either String (TypedStmt, Scope.Scope)
+typeStmt curScope stmt
   | LetStmt {vardef = v@VarDef {ty}, expr} <- stmt = do
-      expr <- typeCheckExpr curScope expr
+      expr <- typeExpr curScope expr
       let exprTy = exprAnnot expr
       if exprTy == ty
         then
@@ -146,129 +156,96 @@ typeCheckStmt curScope stmt
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {}} -> Left $ "Cannot assign to function: " ++ id
         Just Scope.Symbol {ty} -> do
-          expr <- typeCheckExpr curScope expr
+          expr <- typeExpr curScope expr
           let exprty = exprAnnot expr
           if exprty == ty
             then
-              Right
-                ( AssignStmt
-                    { id,
-                      expr
-                    },
-                  curScope
-                )
+              Right (AssignStmt {id, expr}, curScope)
             else Left $ "Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show exprty
         Nothing -> Left $ "Undefined variable: " ++ id
   | ExprStmt {expr} <- stmt = do
-      expr <- typeCheckExpr curScope expr
+      expr <- typeExpr curScope expr
       Right (ExprStmt {expr}, curScope)
   | ReturnStmt {expr} <- stmt = do
       case Scope.lookup curScope.name curScope of
         Just Scope.Symbol {ty = FunTy {retty}} -> do
-          expr <- typeCheckExpr curScope expr
+          expr <- typeExpr curScope expr
           let expty = exprAnnot expr
           if retty == expty
             then
               Right (ReturnStmt {expr}, curScope)
             else
-              Left $ "Return expression type: " ++ show expty ++ "doesn't match function return type: " ++ show retty
+              Left $
+                "Return expression type: "
+                  ++ show expty
+                  ++ "doesn't match function return type: "
+                  ++ show retty
         Just _ -> Left "Cannot return from a variable"
         Nothing -> Left "unreachable: undefined function"
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
-      cond <- typeCheckExpr curScope cond
+      cond <- typeExpr curScope cond
       let condty = exprAnnot cond
       if condty == Bool
         then do
-          ifBody <- typeCheckBlock curScope ifBody
+          ifBody <- typeBlock curScope ifBody
           case elseBody of
             Just elseBlock ->
-              case typeCheckBlock curScope elseBlock of
+              case typeBlock curScope elseBlock of
                 Right elseAnnot ->
-                  Right
-                    ( IfStmt
-                        { cond,
-                          ifBody,
-                          elseBody = Just elseAnnot
-                        },
-                      curScope
-                    )
+                  Right (IfStmt {cond, ifBody, elseBody = Just elseAnnot}, curScope)
                 Left err -> Left err
             Nothing ->
-              Right
-                ( IfStmt
-                    { cond,
-                      ifBody,
-                      elseBody = Nothing
-                    },
-                  curScope
-                )
+              Right (IfStmt {cond, ifBody, elseBody = Nothing}, curScope)
         else Left $ "Condition in if statement must be of type Bool, got " ++ show condty
   | WhileStmt {cond, body} <- stmt = do
-      cond <- typeCheckExpr curScope cond
+      cond <- typeExpr curScope cond
       let condTy = exprAnnot cond
       if condTy == Bool
         then do
-          body <- typeCheckBlock curScope body
-          Right
-            ( WhileStmt
-                { cond,
-                  body
-                },
-              curScope
-            )
+          body <- typeBlock curScope body
+          Right (WhileStmt {cond, body}, curScope)
         else Left $ "Condition in while statement must be of type Bool, got " ++ show condTy
 
-typeCheckBlock :: Scope.Scope -> RawBlock -> Either String TypedBlock
-typeCheckBlock curScope Block {stmts} = do
-  let innerScope = Scope.openScope "block" curScope
+typeBlock :: Scope.Scope -> RawBlock -> Either String TypedBlock
+typeBlock scope Block {stmts} = do
+  let innerScope = Scope.openScope "block" scope
 
   annotatedStmts <-
     foldM
       ( \(acc, nextScope) stmt -> do
-          (annotatedStmt, nextScope) <- typeCheckStmt nextScope stmt
+          (annotatedStmt, nextScope) <- typeStmt nextScope stmt
+          return (annotatedStmt : acc, nextScope)
+      )
+      ([], innerScope)
+      stmts
+
+  Right Block {annot = snd annotatedStmts, stmts = reverse . fst $ annotatedStmts}
+
+typeFun :: Scope.Scope -> RawFun -> Either String TypedFun
+typeFun scope Fun {id, args, retty, body = Block {stmts}} = do
+  let innerScope = foldl (flip Scope.insertVar) (Scope.openScope id scope) args
+
+  annotatedStmts <-
+    foldM
+      ( \(acc, nextScope) stmt -> do
+          (annotatedStmt, nextScope) <- typeStmt nextScope stmt
           return (annotatedStmt : acc, nextScope)
       )
       ([], innerScope)
       stmts
 
   Right
-    ( Block
-        { annot = snd annotatedStmts,
-          stmts = reverse . fst $ annotatedStmts
-        }
-    )
+    Fun
+      { id,
+        args,
+        retty,
+        body = Block {annot = snd annotatedStmts, stmts = reverse . fst $ annotatedStmts}
+      }
 
-typeCheckFunction :: Scope.Scope -> RawFun -> Either String TypedFun
-typeCheckFunction curScope Fun {id, args, retty, body = Block {stmts}} = do
-  let innerScope = foldl (flip Scope.insertVar) (Scope.openScope id curScope) args
-
-  annotatedStmts <-
-    foldM
-      ( \(acc, nextScope) stmt -> do
-          (annotatedStmt, nextScope) <- typeCheckStmt nextScope stmt
-          return (annotatedStmt : acc, nextScope)
-      )
-      ([], innerScope)
-      stmts
-
-  Right
-    ( Fun
-        { id,
-          args,
-          retty,
-          body =
-            Block
-              { annot = snd annotatedStmts,
-                stmts = reverse . fst $ annotatedStmts
-              }
-        }
-    )
-
-typeCheckProgram :: Scope.Scope -> RawProgram -> Either String TypedProgram
-typeCheckProgram scope Program {funcs} = do
-  funcs <- mapM (typeCheckFunction scope) funcs
+typeProgram' :: Scope.Scope -> RawProgram -> Either String TypedProgram
+typeProgram' scope Program {funcs} = do
+  funcs <- mapM (typeFun scope) funcs
   case Scope.lookup "main" scope of
-    -- Main function must return i32
     Just Scope.Symbol {ty = FunTy {retty}} ->
       if retty == Void
         then Right Program {funcs}
@@ -278,7 +255,14 @@ typeCheckProgram scope Program {funcs} = do
 
 buildGlobalScope :: RawProgram -> Scope.Scope
 buildGlobalScope Program {funcs} =
-  foldl (flip Scope.insertFunction) Scope.newGlobalScope funcs
+  foldl
+    (flip Scope.insertFunction)
+    Scope.Scope
+      { name = "global",
+        symbols = Map.empty,
+        parent = Nothing
+      }
+    funcs
 
-typeCheck :: RawProgram -> Either String TypedProgram
-typeCheck program = typeCheckProgram (buildGlobalScope program) program
+typeProgram :: RawProgram -> Either String TypedProgram
+typeProgram program = typeProgram' (buildGlobalScope program) program

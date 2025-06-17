@@ -26,7 +26,7 @@ parseTy =
     ( \case
         TOK.Identifier s : rest ->
           ( case s of
-              "i32" -> Just (I32, rest)
+              "int" -> Just (Int, rest)
               "bool" -> Just (Bool, rest)
               "void" -> Just (Void, rest)
               _ -> Nothing

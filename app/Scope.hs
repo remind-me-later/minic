@@ -10,7 +10,6 @@ module Scope
     lookup,
     insertFunction,
     insertVar,
-    newGlobalScope,
     openScope,
   )
 where
@@ -33,9 +32,6 @@ data Scope = Scope
 
 instance Show Scope where
   show scope = "Scope: " ++ scope.name ++ ", Symbols: " ++ show (Map.keys scope.symbols)
-
-newGlobalScope :: Scope
-newGlobalScope = Scope {name = "global", symbols = Map.empty, parent = Nothing}
 
 insert :: Ident -> Symbol -> Scope -> Scope
 insert id symbol scope =
