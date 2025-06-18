@@ -23,8 +23,8 @@ main = do
     Right table -> return table
     Left err -> error $ "Type checking failed: " ++ err
 
-  putStrLn "Typed AST:"
-  print typedAst
+  -- putStrLn "Typed AST:"
+  -- print typedAst
 
   let mirProgram = programToMir typedAst
   putStrLn "MIR Program:"

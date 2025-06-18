@@ -71,6 +71,7 @@ executable vvv
     build-depends:    base >= 4.17
                         , containers >= 0.6
                         , parsec >= 3.1
+                        , mtl >= 2.3
 
     -- Directories containing source files.
     hs-source-dirs:   app
