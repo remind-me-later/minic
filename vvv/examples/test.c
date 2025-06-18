@@ -14,4 +14,14 @@ int fib(int n) {
     return r;
 }
 
-int print(int n) {}
+int print(int n) {
+    int a = 0;
+
+    if (1 < n) {
+        a = 1;
+    } else {
+        a = 3;
+    }
+
+    return a;
+}

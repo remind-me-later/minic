@@ -11,7 +11,7 @@ module Ir
     MirBasicBlock (..),
     MirFunction (..),
     MirProgram (..),
-    programToMir,
+    transProgram,
   )
 where
 
@@ -27,7 +27,7 @@ import Ast qualified
     Ty (..),
     VarDef (..),
   )
-import Control.Monad (foldM)
+import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, get, modify, runState)
 import Scope qualified
 import TypeCheck
@@ -79,8 +79,7 @@ data MirInstr
   | Param Temp -- Pass an operand as a parameter to a function
   | Return (Maybe Temp) -- Return from function, with optional value
   | -- Control Flow
-    DefLabel Label -- Defines a label: L1:
-  | Jump Label -- goto L1
+    Jump Label -- goto L1
   | CondJump Temp Label Label -- if operand != 0 then goto L_true else goto L_false
   deriving (Eq)
 
@@ -94,7 +93,6 @@ instance Show MirInstr where
   show (Param t) = "param " ++ "t" ++ show t
   show (Return (Just t)) = "return " ++ "t" ++ show t
   show (Return Nothing) = "return"
-  show (DefLabel label) = label ++ ":"
   show (Jump label) = "goto " ++ label
   show (CondJump t trueLabel falseLabel) =
     "if " ++ "t" ++ show t ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
@@ -148,18 +146,50 @@ instance Show MirProgram where
   show (IrProgram functions) = unlines (map show functions)
 
 data TranslationState = TranslationState
-  { currentTemp :: Temp, -- Current temporary variable counter
-    labelCount :: Int -- Current label count for generating unique labels
+  { currentTemp :: Temp,
+    labelCount :: Int,
+    curBlock :: MirBasicBlock,
+    restBlocks :: [MirBasicBlock]
   }
 
 incTemp :: TranslationState -> TranslationState
-incTemp (TranslationState t lc) = TranslationState {currentTemp = t + 1, labelCount = lc}
+incTemp (TranslationState t lc cur rest) =
+  TranslationState
+    { currentTemp = t + 1,
+      labelCount = lc,
+      curBlock = cur,
+      restBlocks = rest
+    }
 
 incLabel :: TranslationState -> TranslationState
-incLabel (TranslationState t lc) = TranslationState {currentTemp = t, labelCount = lc + 1}
+incLabel (TranslationState t lc cur rest) =
+  TranslationState
+    { currentTemp = t,
+      labelCount = lc + 1,
+      curBlock = cur,
+      restBlocks = rest
+    }
 
-transexp :: Scope.Scope -> TypedExp -> State TranslationState [MirInstr]
-transexp scope Ast.Exp {annot, exp}
+addInstsToBlock :: [MirInstr] -> TranslationState -> TranslationState
+addInstsToBlock insts (TranslationState t lc cur rest) =
+  TranslationState
+    { currentTemp = t,
+      labelCount = lc,
+      curBlock = cur {instrs = cur.instrs ++ insts},
+      restBlocks = rest
+    }
+
+openBlock :: String -> TranslationState -> TranslationState
+openBlock label (TranslationState t lc cur rest) =
+  TranslationState
+    { currentTemp = t,
+      labelCount = lc,
+      curBlock = MirBasicBlock {label = label, instrs = []},
+      restBlocks = rest ++ [cur]
+    }
+
+transExp :: Scope.Scope -> TypedExp -> State TranslationState [MirInstr]
+transExp scope Ast.Exp {annot, exp}
   | Ast.IdifierExp {id} <- exp =
       case Scope.lookup id scope of
         Just Scope.Symbol {ty = Ast.FunTy {}} ->
@@ -178,10 +208,10 @@ transexp scope Ast.Exp {annot, exp}
       TranslationState {currentTemp = t} <- get
       return [Assign t (ConstInt num)]
   | Ast.BinExp {left, op, right} <- exp = do
-      linst <- transexp scope left
+      linst <- transExp scope left
       TranslationState {currentTemp = lt} <- get
       modify incTemp
-      rinst <- transexp scope right
+      rinst <- transExp scope right
       TranslationState {currentTemp = rt} <- get
       modify incTemp
       TranslationState {currentTemp = t'} <- get
@@ -190,7 +220,7 @@ transexp scope Ast.Exp {annot, exp}
       argInsts <-
         foldM
           ( \acc arg -> do
-              insts <- transexp scope arg
+              insts <- transExp scope arg
               TranslationState {currentTemp = t} <- get
               modify incTemp
               return (acc ++ insts ++ [Param t])
@@ -205,59 +235,73 @@ transexp scope Ast.Exp {annot, exp}
           modify incTemp
           return (argInsts ++ [Call (Just t) id (length args)])
 
-stmtToMir :: Scope.Scope -> TypedStmt -> State TranslationState [MirInstr]
-stmtToMir scope stmt
-  | Ast.ExpStmt {exp} <- stmt = transexp scope exp
+transStmt :: Scope.Scope -> TypedStmt -> State TranslationState ()
+transStmt scope stmt
+  | Ast.ExpStmt {exp} <- stmt = do
+      insts <- transExp scope exp
+      modify (addInstsToBlock insts)
   | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
-      insts <- transexp scope exp
+      insts <- transExp scope exp
       TranslationState {currentTemp = t} <- get
       modify incTemp
-      return $ insts ++ [Store (Local id) t]
+      modify (addInstsToBlock (insts ++ [Store (Local id) t]))
   | Ast.AssignStmt {id, exp} <- stmt = do
-      insts <- transexp scope exp
+      insts <- transExp scope exp
       case Scope.lookup id scope of
         Just Scope.Symbol {variant = Scope.Local} -> do
           TranslationState {currentTemp = t} <- get
           modify incTemp
-          return $ insts ++ [Store (Local id) t]
+          -- return $ insts ++ [Store (Local id) t]
+          modify (addInstsToBlock (insts ++ [Store (Local id) t]))
         Just Scope.Symbol {variant = Scope.Argument} -> do
           TranslationState {currentTemp = t} <- get
           modify incTemp
-          return $ insts ++ [Store (Arg id) t]
+          -- return $ insts ++ [Store (Arg id) t]
+          modify (addInstsToBlock (insts ++ [Store (Arg id) t]))
         _ -> error $ "Undefined variable: " ++ id
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
-          insts <- transexp scope exp
+          insts <- transExp scope exp
           TranslationState {currentTemp = t} <- get
           modify incTemp
-          return $ insts ++ [Return (Just t)]
+          -- return $ insts ++ [Return (Just t)]
+          modify (addInstsToBlock (insts ++ [Return (Just t)]))
         Nothing -> do
-          return [Return Nothing]
-  -- \| Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
-  --     let condTemp = t
-  --     let ifLabel = "if_true_" ++ show l.current
-  --     let l' = incLabelCount l
-  --     let elseLabel = "if_false_" ++ show l'.current
-  --     let l'' = incLabelCount l'
-  --     let endLabel = "if_end_" ++ show l''.current
-  --     let (newAcc, nt) = transexp scope cond (acc ++ [CondJump condTemp ifLabel elseLabel]) condTemp
-  --     let ifBlock = MirBasicBlock {label = ifLabel, instrs = blockToMir ifBody}
-  --     let elseBlock = case elseBody of
-  --           Just body -> MirBasicBlock {label = elseLabel, instrs = blockToMir body}
-  --           Nothing -> MirBasicBlock {label = elseLabel, instrs = []}
-  --     let endBlock = MirBasicBlock {label = endLabel, instrs = [Jump endLabel]}
-  --     ( ( newAcc
-  --           ++ [DefLabel ifLabel]
-  --           ++ ifBlock.instrs
-  --           ++ [DefLabel elseLabel]
-  --           ++ elseBlock.instrs
-  --           ++ [DefLabel endLabel]
-  --           ++ endBlock.instrs,
-  --         nt
-  --       ),
-  --       incLabelCount l''
-  --       )
+          -- return [Return Nothing]
+          modify (addInstsToBlock [Return Nothing])
+  | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
+      TranslationState {labelCount = l} <- get
+      modify incLabel
+      let thenLabel = "if_then_" ++ show l
+      condInstrs <- transExp scope cond
+
+      case elseBody of
+        Just elseBody -> do
+          TranslationState {labelCount = l} <- get
+          modify incLabel
+          let elseLabel = "if_else_" ++ show l
+          TranslationState {labelCount = l} <- get
+          modify incLabel
+          let endLabel = "if_end_" ++ show l
+
+          TranslationState {currentTemp = t} <- get
+          modify (addInstsToBlock $ condInstrs ++ [CondJump t thenLabel elseLabel])
+          _ <- transBlock thenLabel ifBody
+          modify (addInstsToBlock [Jump endLabel])
+          _ <- transBlock elseLabel elseBody
+          modify (addInstsToBlock [Jump endLabel])
+          modify (openBlock endLabel)
+        Nothing -> do
+          TranslationState {labelCount = l} <- get
+          modify incLabel
+          let endLabel = "if_end_" ++ show l
+
+          TranslationState {currentTemp = t} <- get
+          modify (addInstsToBlock $ condInstrs ++ [CondJump t thenLabel endLabel])
+          _ <- transBlock thenLabel ifBody
+          modify (addInstsToBlock [Jump endLabel])
+          modify (openBlock endLabel)
   | Ast.WhileStmt {cond, body} <- stmt = do
       TranslationState {labelCount = l} <- get
       modify incLabel
@@ -269,55 +313,35 @@ stmtToMir scope stmt
       modify incLabel
       let endLabel = "while_end_" ++ show l
       modify incLabel
-      condInstrs <- transexp scope cond
+      condInstrs <- transExp scope cond
+      modify (openBlock condLabel)
       TranslationState {currentTemp = t} <- get
-      let loopBlock = MirBasicBlock {label = loopLabel, instrs = blockToMir body}
-      let endBlock = MirBasicBlock {label = endLabel, instrs = []}
-      return
-        ( condInstrs
-            ++ [DefLabel condLabel]
-            ++ [CondJump t loopLabel endLabel]
-            ++ [DefLabel loopLabel]
-            ++ loopBlock.instrs
-            ++ [Jump condLabel]
-            ++ [DefLabel endLabel]
-            ++ endBlock.instrs
-        )
-  | _ <- stmt = do
-      error $ "Unsupported statement: " ++ show stmt
+      modify (addInstsToBlock $ condInstrs ++ [CondJump t loopLabel endLabel])
+      _ <- transBlock loopLabel body
+      modify (addInstsToBlock [Jump condLabel])
+      modify (openBlock endLabel)
 
-blockToMir :: TypedBlock -> [MirInstr]
-blockToMir Ast.Block {annot, stmts} = do
-  let initialState = TranslationState {currentTemp = 0, labelCount = 0}
-  let (mirInstrs, _) =
-        runState
-          ( foldM
-              ( \acc stmt -> do
-                  insts <- stmtToMir annot stmt
-                  return (acc ++ insts)
-              )
-              []
-              stmts
-          )
-          initialState
-  mirInstrs
+transBlock :: String -> TypedBlock -> State TranslationState ()
+transBlock label Ast.Block {annot = scope, stmts} = do
+  modify (openBlock label)
+  foldM_ (\_ stmt -> transStmt scope stmt) () stmts
 
-funToMir :: TypedFun -> [MirFunction] -> [MirFunction]
-funToMir Ast.Fun {id, args, body} acc =
+transFun :: TypedFun -> MirFunction
+transFun Ast.Fun {id, args, body} =
   let funName = id
       funArgs = map (\Ast.VarDef {id} -> id) args
       entryLabel = funName ++ "_entry"
-      blocks = [MirBasicBlock {label = entryLabel, instrs = blockToMir body}]
-   in acc
-        ++ [ MirFunction
-               { irFunName = funName,
-                 irFunArgs = funArgs,
-                 irFunEntryLabel = entryLabel,
-                 irFunBlocks = blocks
-               }
-           ]
+      initialState = TranslationState {currentTemp = 0, labelCount = 0, curBlock = MirBasicBlock {label = entryLabel, instrs = []}, restBlocks = []}
+      (_, ts) = runState (transBlock entryLabel body) initialState
+      blocks = ts.restBlocks ++ [ts.curBlock]
+   in MirFunction
+        { irFunName = funName,
+          irFunArgs = funArgs,
+          irFunEntryLabel = entryLabel,
+          irFunBlocks = blocks
+        }
 
-programToMir :: TypedProgram -> MirProgram
-programToMir Ast.Program {funcs} =
-  let irFunctions = foldl (flip funToMir) [] funcs
+transProgram :: TypedProgram -> MirProgram
+transProgram Ast.Program {funcs} =
+  let irFunctions = map transFun funcs
    in IrProgram {irFunctions = irFunctions}

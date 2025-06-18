@@ -1,6 +1,6 @@
 module Main where
 
-import Ir (programToMir)
+import Ir (transProgram)
 import Parser qualified (program)
 import System.Environment (getArgs)
 import Text.Parsec qualified as Parsec
@@ -26,6 +26,6 @@ main = do
   -- putStrLn "Typed AST:"
   -- print typedAst
 
-  let mirProgram = programToMir typedAst
+  let mirProgram = transProgram typedAst
   putStrLn "MIR Program:"
   print mirProgram
