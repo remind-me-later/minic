@@ -17,15 +17,15 @@ main = do
     Just (t, _) -> return t
     Nothing -> error "Failed to parse tokens"
 
-  -- putStrLn "Tokens:"
-  -- print toks
+  putStrLn "Tokens:"
+  print toks
 
   ast <- case parse parseProgram toks of
     Just (p, _) -> return p
     Nothing -> error "Failed to parse AST"
 
-  -- putStrLn "AST:"
-  -- print ast
+  putStrLn "AST:"
+  print ast
 
   typedAst <- case typeProgram ast of
     Right table -> return table
