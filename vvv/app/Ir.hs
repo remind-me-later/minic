@@ -1,3 +1,4 @@
+-- Based on the Dragon Book's TAC
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -14,8 +15,8 @@ module Ir
   )
 where
 
-import Ast qualified (Block (..), Expr (..), Fun (..), Ident, Operator, Program (..), Stmt (..), Ty (..), VarDef (..))
-import TypeCheck (TypedBlock, TypedExpr, TypedFun, TypedProgram, TypedStmt)
+import Ast qualified (Block (..), Exp (..), ExpInner (..), Fun (..), Ident, Operator, Program (..), Stmt (..), Ty (..), VarDef (..))
+import TypeCheck (TypedBlock, TypedExp, TypedFun, TypedProgram, TypedStmt)
 
 -- A temporary variable or register
 type Temp = Int
@@ -44,7 +45,7 @@ data MirInstr
     Load Temp Ast.Ident -- t1 = variable_name (load from source variable)
   | Store Ast.Ident Temp -- variable_name = operand (store to source variable)
   | -- Function Calls
-    Call (Maybe Temp) Ast.Ident
+    Call (Maybe Temp) Ast.Ident Int
   | Param Temp -- Pass an operand as a parameter to a function
   | Return (Maybe Temp) -- Return from function, with optional value
   | -- Control Flow
@@ -58,8 +59,8 @@ instance Show MirInstr where
   show (BinOp t t' a b) = "t" ++ show t ++ " = " ++ show a ++ " " ++ show t' ++ " " ++ show b
   show (Load t id) = "t" ++ show t ++ " = " ++ "var " ++ id
   show (Store id t) = "var " ++ id ++ " = " ++ "t" ++ show t
-  show (Call (Just t) id) = "call " ++ id ++ " -> " ++ "t" ++ show t
-  show (Call Nothing id) = "call " ++ id
+  show (Call (Just t) id n) = "t" ++ show t ++ " = call " ++ id ++ ", " ++ show n
+  show (Call Nothing id n) = "call " ++ id ++ ", " ++ show n
   show (Param t) = "param " ++ "t" ++ show t
   show (Return (Just t)) = "return " ++ "t" ++ show t
   show (Return Nothing) = "return"
@@ -72,14 +73,14 @@ instance Show MirInstr where
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 -- For simplicity here, we'll just list instructions and assume the last one is control flow.
 -- A more rigorous CFG would explicitly link blocks.
-data MirBasicBlock = BasicBlock
-  { bbLabel :: Label,
-    bbInstructions :: [MirInstr]
+data MirBasicBlock = MirBasicBlock
+  { label :: Label,
+    instrs :: [MirInstr]
   }
   deriving (Eq)
 
 instance Show MirBasicBlock where
-  show (BasicBlock label instructions) =
+  show (MirBasicBlock label instructions) =
     label ++ ":\n" ++ unlines (map (("  " ++) . show) instructions)
 
 -- An IR representation of a function
@@ -88,7 +89,7 @@ data MirFunction = IrFunction
     irFunArgs :: [Ast.Ident], -- Names of arguments, can be mapped to Temps
     irFunEntryLabel :: Label,
     irFunBlocks :: [MirBasicBlock] -- List of basic blocks in the function
-    -- Could also be a Map Label BasicBlock for easier lookup
+    -- Could also be a Map Label MirBasicBlock for easier lookup
   }
   deriving (Eq)
 
@@ -119,87 +120,90 @@ instance Show MirProgram where
 newTemp :: Temp -> Temp
 newTemp current = current + 1
 
-exprToMir :: TypedExpr -> [MirInstr] -> Temp -> ([MirInstr], Temp)
-exprToMir expr acc t
-  | Ast.IdentifierExpr {id} <- expr =
+expToMir :: TypedExp -> [MirInstr] -> Temp -> ([MirInstr], Temp)
+expToMir Ast.Exp {annot, exp} acc t
+  | Ast.IdentifierExp {id} <- exp =
       (acc ++ [Load t id], t)
-  | Ast.NumberExpr {num} <- expr =
+  | Ast.NumberExp {num} <- exp =
       (acc ++ [Assign t (ConstInt num)], t)
-  | Ast.BinExpr {left, op, right} <- expr = do
-      let (leftAcc, lt) = exprToMir left acc t
-      let (rightAcc, rt) = exprToMir right leftAcc (newTemp lt)
+  | Ast.BinExp {left, op, right} <- exp = do
+      let (leftAcc, lt) = expToMir left acc t
+      let (rightAcc, rt) = expToMir right leftAcc (newTemp lt)
       let binOpTemp = newTemp rt
       (rightAcc ++ [BinOp binOpTemp op lt rt], binOpTemp)
-  | Ast.Call {id, args, annot} <- expr = do
+  | Ast.Call {id, args} <- exp = do
       let (argAcc, argTemps) =
             foldl
               ( \(acc', temps) arg ->
-                  let (newAcc, nt) = exprToMir arg acc' (last temps) in (newAcc, temps ++ [nt])
+                  let (newAcc, nt) = expToMir arg acc' (last temps) in (newAcc, temps ++ [nt])
               )
               (acc, [t])
               args
       case annot of
         Ast.Void ->
-          (argAcc ++ map Param (tail argTemps) ++ [Call Nothing id], last argTemps)
+          let argtmps = tail argTemps
+           in (argAcc ++ map Param argtmps ++ [Call Nothing id (length argtmps)], last argTemps)
         _ ->
-          let callTemp = newTemp (last argTemps)
-           in (argAcc ++ map Param (tail argTemps) ++ [Call (Just callTemp) id], callTemp)
+          let argtmps = tail argTemps
+              callTemp = newTemp (last argTemps)
+           in (argAcc ++ map Param argtmps ++ [Call (Just callTemp) id (length argtmps)], callTemp)
 
 stmtToMir :: TypedStmt -> [MirInstr] -> Temp -> ([MirInstr], Temp)
 stmtToMir stmt acc t
-  | Ast.ExprStmt {expr} <- stmt =
-      exprToMir expr acc t
-  | Ast.LetStmt {vardef = Ast.VarDef {id}, expr} <- stmt = do
-      let (newAcc, nt) = exprToMir expr acc t
+  | Ast.ExpStmt {exp} <- stmt =
+      expToMir exp acc t
+  | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
+      let (newAcc, nt) = expToMir exp acc t
       (newAcc ++ [Store id nt], newTemp nt)
-  | Ast.AssignStmt {id, expr} <- stmt = do
-      let (newAcc, nt) = exprToMir expr acc t
+  | Ast.AssignStmt {id, exp} <- stmt = do
+      let (newAcc, nt) = expToMir exp acc t
       (newAcc ++ [Store id nt], newTemp nt)
-  | Ast.ReturnStmt {expr} <- stmt = do
-      let (newAcc, nt) = exprToMir expr acc t
+  | Ast.ReturnStmt {exp} <- stmt = do
+      let (newAcc, nt) = expToMir exp acc t
       (newAcc ++ [Return (Just nt)], newTemp nt)
   | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
       let condTemp = t
       let ifLabel = "if_true"
       let elseLabel = "if_false"
       let endLabel = "if_end"
-      let (newAcc, nt) = exprToMir cond (acc ++ [CondJump condTemp ifLabel elseLabel]) condTemp
-      let ifBlock = BasicBlock {bbLabel = ifLabel, bbInstructions = blockToMir ifBody []}
+      let (newAcc, nt) = expToMir cond (acc ++ [CondJump condTemp ifLabel elseLabel]) condTemp
+      let ifBlock = MirBasicBlock {label = ifLabel, instrs = blockToMir ifBody}
       let elseBlock = case elseBody of
-            Just body -> BasicBlock {bbLabel = elseLabel, bbInstructions = blockToMir body []}
-            Nothing -> BasicBlock {bbLabel = elseLabel, bbInstructions = []}
-      let endBlock = BasicBlock {bbLabel = endLabel, bbInstructions = [Jump endLabel]}
+            Just body -> MirBasicBlock {label = elseLabel, instrs = blockToMir body}
+            Nothing -> MirBasicBlock {label = elseLabel, instrs = []}
+      let endBlock = MirBasicBlock {label = endLabel, instrs = [Jump endLabel]}
       ( newAcc
           ++ [DefLabel ifLabel]
-          ++ ifBlock.bbInstructions
+          ++ ifBlock.instrs
           ++ [DefLabel elseLabel]
-          ++ elseBlock.bbInstructions
+          ++ elseBlock.instrs
           ++ [DefLabel endLabel]
-          ++ endBlock.bbInstructions,
+          ++ endBlock.instrs,
         nt
         )
   | Ast.WhileStmt {cond, body} <- stmt = do
       let condLabel = "while_cond"
       let loopLabel = "while_loop"
       let endLabel = "while_end"
-      let (condInstrs, nt) = exprToMir cond acc t
-      let loopBlock = BasicBlock {bbLabel = loopLabel, bbInstructions = blockToMir body []}
-      let endBlock = BasicBlock {bbLabel = endLabel, bbInstructions = []}
+      let (condInstrs, nt) = expToMir cond acc t
+      let loopBlock = MirBasicBlock {label = loopLabel, instrs = blockToMir body}
+      let endBlock = MirBasicBlock {label = endLabel, instrs = []}
       ( [DefLabel "whileBegin"]
           ++ condInstrs
           ++ [DefLabel condLabel]
           ++ [CondJump nt loopLabel endLabel]
           ++ [DefLabel loopLabel]
-          ++ loopBlock.bbInstructions
+          ++ loopBlock.instrs
           ++ [Jump condLabel]
           ++ [DefLabel endLabel]
-          ++ endBlock.bbInstructions,
+          ++ endBlock.instrs,
         newTemp nt
         )
 
-blockToMir :: TypedBlock -> [MirInstr] -> [MirInstr]
-blockToMir Ast.Block {stmts} acc = do
+blockToMir :: TypedBlock -> [MirInstr]
+blockToMir Ast.Block {stmts} = do
   let initialTemp = 0
+  let acc = []
   let f =
         foldl
           (\(instrs, temp) stmt -> stmtToMir stmt instrs temp)
@@ -212,7 +216,7 @@ funToMir Ast.Fun {id, args, body} acc =
   let funName = id
       funArgs = map (\Ast.VarDef {id} -> id) args
       entryLabel = funName ++ "_entry"
-      blocks = [BasicBlock {bbLabel = entryLabel, bbInstructions = blockToMir body []}]
+      blocks = [MirBasicBlock {label = entryLabel, instrs = blockToMir body}]
    in acc ++ [IrFunction {irFunName = funName, irFunArgs = funArgs, irFunEntryLabel = entryLabel, irFunBlocks = blocks}]
 
 programToMir :: TypedProgram -> MirProgram

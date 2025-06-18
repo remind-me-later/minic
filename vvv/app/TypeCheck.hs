@@ -8,31 +8,31 @@ module TypeCheck
     TypedFun,
     TypedBlock,
     TypedStmt,
-    TypedExpr,
+    TypedExp,
   )
 where
 
 import Ast
   ( Block (..),
-    Expr (..),
+    Exp (..),
+    ExpInner (..),
     Fun (..),
     Operator (..),
     Program (..),
     RawBlock,
-    RawExpr,
+    RawExp,
     RawFun,
     RawProgram,
     RawStmt,
     Stmt (..),
     Ty (..),
     VarDef (..),
-    exprAnnot,
   )
 import Control.Monad (foldM)
 import Data.Map qualified as Map
 import Scope qualified
 
-type TypedExpr = Expr Ty
+type TypedExp = Exp Ty
 
 type TypedStmt = Stmt Ty Scope.Scope
 
@@ -89,26 +89,26 @@ typeOp op lty rty =
     Modulo -> Left $ "Type mismatch in modulo operation: " ++ show lty ++ " % " ++ show rty
     _ -> Left $ "Unsupported operator: " ++ show op
 
-typeExpr :: Scope.Scope -> RawExpr -> Either String TypedExpr
-typeExpr curScope expr
-  | IdentifierExpr {id} <- expr =
+typeExp :: Scope.Scope -> RawExp -> Either String TypedExp
+typeExp curScope Exp {exp}
+  | IdentifierExp {id} <- exp =
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {}} ->
           Left $ "Cannot use function " ++ id ++ " as variable"
         Just Scope.Symbol {ty} ->
-          Right IdentifierExpr {annot = ty, id}
+          Right Exp {annot = ty, exp = IdentifierExp {id}}
         Nothing -> Left $ "Undefined variable: " ++ id
-  | NumberExpr {num} <- expr =
-      Right NumberExpr {annot = Int, num}
-  | BinExpr {left, op, right} <- expr = do
-      left <- typeExpr curScope left
-      right <- typeExpr curScope right
-      let lty = exprAnnot left
-          rty = exprAnnot right
+  | NumberExp {num} <- exp =
+      Right Exp {annot = Int, exp = NumberExp {num}}
+  | BinExp {left, op, right} <- exp = do
+      left <- typeExp curScope left
+      right <- typeExp curScope right
+      let lty = left.annot
+          rty = right.annot
       case typeOp op lty rty of
-        Right ty -> Right BinExpr {annot = ty, left, op, right}
+        Right ty -> Right Exp {annot = ty, exp = BinExp {left, op, right}}
         Left err -> Left err
-  | Call {id, args} <- expr =
+  | Call {id, args} <- exp =
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {argtys, retty}} ->
           if length args /= length argtys
@@ -121,10 +121,14 @@ typeExpr curScope expr
                   ++ " arguments, got "
                   ++ show (length args)
             else do
-              args <- mapM (typeExpr curScope) args
-              if (exprAnnot <$> args) == argtys
+              args <- mapM (typeExp curScope) args
+              if ((\e -> e.annot) <$> args) == argtys
                 then
-                  Right Call {annot = retty, id, args}
+                  Right
+                    Exp
+                      { annot = retty,
+                        exp = Call {id, args}
+                      }
                 else
                   Left $
                     "Argument type mismatch for function "
@@ -139,52 +143,52 @@ typeExpr curScope expr
 
 typeStmt :: Scope.Scope -> RawStmt -> Either String (TypedStmt, Scope.Scope)
 typeStmt curScope stmt
-  | LetStmt {vardef = v@VarDef {ty}, expr} <- stmt = do
-      expr <- typeExpr curScope expr
-      let exprTy = exprAnnot expr
-      if exprTy == ty
+  | LetStmt {vardef = v@VarDef {ty}, exp} <- stmt = do
+      exp <- typeExp curScope exp
+      let expTy = exp.annot
+      if expTy == ty
         then
           Right
             ( LetStmt
                 { vardef = v,
-                  expr
+                  exp
                 },
               Scope.insertVar v curScope
             )
-        else Left $ "Type mismatch: expected " ++ show ty ++ ", got " ++ show exprTy
-  | AssignStmt {id, expr} <- stmt = do
+        else Left $ "Type mismatch: expected " ++ show ty ++ ", got " ++ show expTy
+  | AssignStmt {id, exp} <- stmt = do
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {}} -> Left $ "Cannot assign to function: " ++ id
         Just Scope.Symbol {ty} -> do
-          expr <- typeExpr curScope expr
-          let exprty = exprAnnot expr
-          if exprty == ty
+          exp <- typeExp curScope exp
+          let expty = exp.annot
+          if expty == ty
             then
-              Right (AssignStmt {id, expr}, curScope)
-            else Left $ "Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show exprty
+              Right (AssignStmt {id, exp}, curScope)
+            else Left $ "Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show expty
         Nothing -> Left $ "Undefined variable: " ++ id
-  | ExprStmt {expr} <- stmt = do
-      expr <- typeExpr curScope expr
-      Right (ExprStmt {expr}, curScope)
-  | ReturnStmt {expr} <- stmt = do
+  | ExpStmt {exp} <- stmt = do
+      exp <- typeExp curScope exp
+      Right (ExpStmt {exp}, curScope)
+  | ReturnStmt {exp} <- stmt = do
       case Scope.lookup curScope.name curScope of
         Just Scope.Symbol {ty = FunTy {retty}} -> do
-          expr <- typeExpr curScope expr
-          let expty = exprAnnot expr
+          exp <- typeExp curScope exp
+          let expty = exp.annot
           if retty == expty
             then
-              Right (ReturnStmt {expr}, curScope)
+              Right (ReturnStmt {exp}, curScope)
             else
               Left $
-                "Return expression type: "
+                "Return expession type: "
                   ++ show expty
                   ++ "doesn't match function return type: "
                   ++ show retty
         Just _ -> Left "Cannot return from a variable"
         Nothing -> Left "unreachable: undefined function"
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
-      cond <- typeExpr curScope cond
-      let condty = exprAnnot cond
+      cond <- typeExp curScope cond
+      let condty = cond.annot
       if condty == Bool
         then do
           ifBody <- typeBlock curScope ifBody
@@ -198,8 +202,8 @@ typeStmt curScope stmt
               Right (IfStmt {cond, ifBody, elseBody = Nothing}, curScope)
         else Left $ "Condition in if statement must be of type Bool, got " ++ show condty
   | WhileStmt {cond, body} <- stmt = do
-      cond <- typeExpr curScope cond
-      let condTy = exprAnnot cond
+      cond <- typeExp curScope cond
+      let condTy = cond.annot
       if condTy == Bool
         then do
           body <- typeBlock curScope body

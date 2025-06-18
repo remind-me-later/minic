@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Ast
-  ( Expr (..),
+  ( Exp (..),
     Stmt (..),
     Block (..),
     Fun (..),
@@ -11,12 +11,12 @@ module Ast
     Ty (..),
     Ident,
     VarDef (..),
-    RawExpr,
+    RawExp,
     RawStmt,
     RawBlock,
     RawFun,
     RawProgram,
-    exprAnnot,
+    ExpInner (..),
   )
 where
 
@@ -67,25 +67,27 @@ instance Show Operator where
   show Xor = "^"
   show Modulo = "%"
 
-data Expr ea
-  = BinExpr
-      { annot :: ea,
-        left :: Expr ea,
+data Exp ea = Exp
+  { annot :: ea,
+    exp :: ExpInner ea
+  }
+  deriving (Show, Eq)
+
+data ExpInner ea
+  = BinExp
+      { left :: Exp ea,
         op :: Operator,
-        right :: Expr ea
+        right :: Exp ea
       }
-  | NumberExpr
-      { annot :: ea,
-        num :: Int
+  | NumberExp
+      { num :: Int
       }
-  | IdentifierExpr
-      { annot :: ea,
-        id :: Ident
+  | IdentifierExp
+      { id :: Ident
       }
   | Call
-      { annot :: ea,
-        id :: Ident,
-        args :: [Expr ea]
+      { id :: Ident,
+        args :: [Exp ea]
       }
   deriving (Show, Eq)
 
@@ -96,25 +98,25 @@ data VarDef = VarDef
   deriving (Show, Eq)
 
 data Stmt ea ba
-  = ExprStmt {expr :: Expr ea}
+  = ExpStmt {exp :: Exp ea}
   | LetStmt
       { vardef :: VarDef,
-        expr :: Expr ea
+        exp :: Exp ea
       }
   | AssignStmt
       { id :: Ident,
-        expr :: Expr ea
+        exp :: Exp ea
       }
   | ReturnStmt
-      { expr :: Expr ea
+      { exp :: Exp ea
       }
   | IfStmt
-      { cond :: Expr ea,
+      { cond :: Exp ea,
         ifBody :: Block ea ba,
         elseBody :: Maybe (Block ea ba)
       }
   | WhileStmt
-      { cond :: Expr ea,
+      { cond :: Exp ea,
         body :: Block ea ba
       }
   deriving (Show, Eq)
@@ -138,7 +140,7 @@ newtype Program a ba = Program
   }
   deriving (Show, Eq)
 
-type RawExpr = Expr ()
+type RawExp = Exp ()
 
 type RawStmt = Stmt () ()
 
@@ -147,9 +149,3 @@ type RawBlock = Block () ()
 type RawFun = Fun () ()
 
 type RawProgram = Program () ()
-
-exprAnnot :: Expr ea -> ea
-exprAnnot (BinExpr {annot}) = annot
-exprAnnot (NumberExpr {annot}) = annot
-exprAnnot (IdentifierExpr {annot}) = annot
-exprAnnot (Call {annot}) = annot

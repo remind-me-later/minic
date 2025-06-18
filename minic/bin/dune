@@ -1,0 +1,5 @@
+(executable
+ (public_name minic)
+ (name main)
+ (modules main ast parser)
+ (libraries minic angstrom))

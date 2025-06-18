@@ -4,7 +4,23 @@
 
 module Parser (parseProgram) where
 
-import Ast (Block (..), Expr (..), Fun (..), Ident, Operator (..), Program (..), RawBlock, RawExpr, RawFun, RawProgram, RawStmt, Stmt (..), Ty (..), VarDef (..))
+import Ast
+  ( Block (..),
+    Exp (..),
+    ExpInner (..),
+    Fun (..),
+    Ident,
+    Operator (..),
+    Program (..),
+    RawBlock,
+    RawExp,
+    RawFun,
+    RawProgram,
+    RawStmt,
+    Stmt (..),
+    Ty (..),
+    VarDef (..),
+  )
 import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Maybe (fromMaybe)
 import ParserCombinators qualified as PC (Parser (..), satisfy)
@@ -52,32 +68,36 @@ parseOp op =
         _ -> Nothing
     )
 
-parseExpr :: TParser RawExpr
+parseExpr :: TParser RawExp
 parseExpr = parseEqExpr
   where
     parseFactor = parseCall <|> parseIdentifierExpr <|> parseParenExpr <|> parseNumberExpr
       where
-        parseNumberExpr = NumberExpr () <$> parseNum
-        parseIdentifierExpr = IdentifierExpr () <$> parseIdent
+        parseNumberExpr = do
+          num <- parseNum
+          return Exp {annot = (), exp = NumberExp {num}}
+        parseIdentifierExpr = do
+          id <- parseIdent
+          return Exp {annot = (), exp = IdentifierExp {id}}
         parseParenExpr =
           PC.satisfy
             (== TOK.Punctuation TOK.LeftParen)
             *> parseExpr
             <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
-        parseCall =
-          Call ()
-            <$> parseIdent
-            <*> ( PC.satisfy
-                    (== TOK.Punctuation TOK.LeftParen)
-                    *> parseCommaSeparated0 parseExpr
-                    <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
-                )
+        parseCall = do
+          id <- parseIdent
+          _ <- PC.satisfy (== TOK.Punctuation TOK.LeftParen)
+          args <- parseCommaSeparated0 parseExpr
+          _ <- PC.satisfy (== TOK.Punctuation TOK.RightParen)
+          return Exp {annot = (), exp = Call {id, args}}
 
     parseMulExpr = do
       left <- parseFactor
       maybeOp <- optional (parseOp Multiply)
       case maybeOp of
-        Just op -> BinExpr () left op <$> parseMulExpr
+        Just op -> do
+          right <- parseMulExpr
+          return Exp {annot = (), exp = BinExp {left, op, right}}
         Nothing -> return left
 
     parseAddSubExpr = do
@@ -88,7 +108,9 @@ parseExpr = parseEqExpr
               <|> parseOp Subtract
           )
       case maybeOp of
-        Just op -> BinExpr () left op <$> parseAddSubExpr
+        Just op -> do
+          right <- parseAddSubExpr
+          return Exp {annot = (), exp = BinExp {left, op, right}}
         Nothing -> return left
 
     parseEqExpr = do
@@ -103,7 +125,9 @@ parseExpr = parseEqExpr
               <|> parseOp GreaterThanOrEqual
           )
       case maybeOp of
-        Just op -> BinExpr () left op <$> parseEqExpr
+        Just op -> do
+          right <- parseEqExpr
+          return Exp {annot = (), exp = BinExp {left, op, right}}
         Nothing -> return left
 
 parseVarDef :: TParser VarDef
@@ -134,7 +158,9 @@ parseStmt =
     parseReturnStmt =
       ReturnStmt
         <$> (PC.satisfy (== TOK.Keyword TOK.Return) *> parseExpr)
-    parseExprStmt = ExprStmt <$> parseExpr
+    parseExprStmt = do
+      exp <- parseExpr
+      return ExpStmt {exp}
     parseIfStmt = do
       _ <- PC.satisfy (== TOK.Keyword TOK.If)
       cond <- parseExpr
