@@ -45,7 +45,11 @@ type Label = String
 data MirVar
   = Local Ast.Id -- Local variable in a function
   | Arg Ast.Id -- Argument to a function
-  deriving (Show, Eq)
+  deriving (Eq)
+
+instance Show MirVar where
+  show (Local id) = "local " ++ id
+  show (Arg id) = "arg " ++ id
 
 -- Operands for instructions
 data MirOperand
@@ -80,11 +84,9 @@ data MirInstr
 
 instance Show MirInstr where
   show (Assign t op) = "t" ++ show t ++ " = " ++ show op
-  show (BinOp t t' a b) = "t" ++ show t ++ " = " ++ show a ++ " " ++ show t' ++ " " ++ show b
-  show (Load t (Local id)) = "t" ++ show t ++ " = local " ++ id
-  show (Load t (Arg id)) = "t" ++ show t ++ " = arg " ++ id
-  show (Store (Local id) t) = "local " ++ id ++ " = " ++ "t" ++ show t
-  show (Store (Arg id) t) = "arg " ++ id ++ " = " ++ "t" ++ show t
+  show (BinOp t1 op t2 t3) = "t" ++ show t1 ++ " = " ++ "t" ++ show t2 ++ " " ++ show op ++ " " ++ "t" ++ show t3
+  show (Load t v) = "t" ++ show t ++ " = " ++ show v
+  show (Store v t) = show v ++ " = t" ++ show t
   show (Call (Just t) id n) = "t" ++ show t ++ " = call " ++ id ++ ", " ++ show n
   show (Call Nothing id n) = "call " ++ id ++ ", " ++ show n
   show (Param t) = "param " ++ "t" ++ show t
@@ -93,7 +95,7 @@ instance Show MirInstr where
   show (DefLabel label) = label ++ ":"
   show (Jump label) = "goto " ++ label
   show (CondJump t trueLabel falseLabel) =
-    "if " ++ show t ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
+    "if " ++ "t" ++ show t ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
 
 -- A Basic Block is a sequence of instructions that starts with a label
 -- and ends with a control flow instruction (Jump, CondJump, Return).
@@ -231,8 +233,7 @@ stmtToMir scope stmt acc t
       let (condInstrs, nt) = expToMir scope cond acc t
       let loopBlock = MirBasicBlock {label = loopLabel, instrs = blockToMir body}
       let endBlock = MirBasicBlock {label = endLabel, instrs = []}
-      ( [DefLabel "whileBegin"]
-          ++ condInstrs
+      ( condInstrs
           ++ [DefLabel condLabel]
           ++ [CondJump nt loopLabel endLabel]
           ++ [DefLabel loopLabel]

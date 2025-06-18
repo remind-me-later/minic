@@ -1,7 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Parser (parseProgram) where
+module Parser (program) where
 
 import Ast qualified
   ( Block (..),
@@ -54,56 +54,56 @@ braces p = symbol "{" *> p <* symbol "}"
 commaSep :: PC.Parser a -> PC.Parser [a]
 commaSep p = PC.sepBy p (symbol ",")
 
-parseId :: PC.Parser Ast.Id
-parseId =
+id :: PC.Parser Ast.Id
+id =
   let isFirstChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ "_"
       isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
    in Parser.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
 
-parseTy :: PC.Parser Ast.Ty
-parseTy =
+ty :: PC.Parser Ast.Ty
+ty =
   let parseInt = (keyword "int" $> Ast.IntTy)
       parseBool = (keyword "bool" $> Ast.BoolTy)
       parseVoid = (keyword "void" $> Ast.VoidTy)
    in Parser.lex (parseInt <|> parseBool <|> parseVoid)
 
-parseNum :: PC.Parser Int
-parseNum =
+num :: PC.Parser Int
+num =
   let isDigit c = c `elem` ['0' .. '9']
    in read <$> Parser.lex (PC.many1 (PC.satisfy isDigit) >>= \digits -> return digits)
 
-parseExp :: PC.Parser Ast.RawExp
-parseExp = parseEqExp
+exp :: PC.Parser Ast.RawExp
+exp = eqexp
   where
-    parseFactor =
-      PC.try parseCall
-        <|> PC.try parseIdifierExp
-        <|> PC.try parseParenExp
-        <|> PC.try parseNumberExp
+    factor =
+      PC.try callexp
+        <|> PC.try idexp
+        <|> PC.try parenexp
+        <|> PC.try numexp
       where
-        parseNumberExp = do
-          num <- parseNum
+        numexp = do
+          num <- num
           return Ast.Exp {annot = (), exp = Ast.NumberExp {num}}
-        parseIdifierExp = do
-          id <- parseId
+        idexp = do
+          id <- Parser.id
           return Ast.Exp {annot = (), exp = Ast.IdifierExp {id}}
-        parseParenExp = parens parseExp
-        parseCall = do
-          id <- parseId
-          args <- parens (commaSep parseExp)
+        parenexp = parens Parser.exp
+        callexp = do
+          id <- Parser.id
+          args <- parens (commaSep Parser.exp)
           return Ast.Exp {annot = (), exp = Ast.Call {id, args}}
 
-    parseMulExp = do
-      left <- parseFactor
+    mulexp = do
+      left <- factor
       maybeOp <- optional (symbol "*" $> Ast.Mul)
       case maybeOp of
         Just op -> do
-          right <- parseMulExp
+          right <- mulexp
           return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
-    parseAddSubExp = do
-      left <- parseMulExp
+    addsubexp = do
+      left <- mulexp
       maybeOp <-
         optional
           ( symbol "+" $> Ast.Add
@@ -111,12 +111,12 @@ parseExp = parseEqExp
           )
       case maybeOp of
         Just op -> do
-          right <- parseAddSubExp
+          right <- addsubexp
           return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
-    parseEqExp = do
-      left <- parseAddSubExp
+    eqexp = do
+      left <- addsubexp
       maybeOp <-
         optional
           ( symbol "==" $> Ast.Equal
@@ -128,79 +128,79 @@ parseExp = parseEqExp
           )
       case maybeOp of
         Just op -> do
-          right <- parseEqExp
+          right <- eqexp
           return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
-parseVarDef :: PC.Parser Ast.VarDef
-parseVarDef = do
-  ty <- parseTy
-  id <- parseId
+vardef :: PC.Parser Ast.VarDef
+vardef = do
+  ty <- ty
+  id <- Parser.id
   return Ast.VarDef {id, ty}
 
-parseStmt :: PC.Parser Ast.RawStmt
-parseStmt =
-  PC.try parseLetStmt
-    <|> PC.try parseReturnStmt
-    <|> PC.try parseIfStmt
-    <|> PC.try parseWhileStmt
-    <|> PC.try parseAssignStmt
-    <|> PC.try parseExpStmt
+stmt :: PC.Parser Ast.RawStmt
+stmt =
+  PC.try letstmt
+    <|> PC.try retstmt
+    <|> PC.try ifstmt
+    <|> PC.try whilestmt
+    <|> PC.try assignstmt
+    <|> PC.try expstmt
   where
-    parseLetStmt = do
-      vardef <- parseVarDef
+    letstmt = do
+      vardef <- vardef
       _ <- symbol "="
-      exp <- parseExp
+      exp <- Parser.exp
       _ <- symbol ";"
       return $ Ast.LetStmt {vardef, exp}
 
-    parseAssignStmt = do
-      id <- parseId
+    assignstmt = do
+      id <- Parser.id
       _ <- symbol "="
-      exp <- parseExp
+      exp <- Parser.exp
       _ <- symbol ";"
       return $ Ast.AssignStmt {id, exp}
 
-    parseReturnStmt = do
+    retstmt = do
       _ <- returnkw
-      retexp <- optional parseExp
+      retexp <- optional Parser.exp
       _ <- symbol ";"
       return $ Ast.ReturnStmt {retexp}
 
-    parseExpStmt = do
-      exp <- parseExp
+    expstmt = do
+      exp <- Parser.exp
       _ <- symbol ";"
       return Ast.ExpStmt {exp}
 
-    parseIfStmt = do
+    ifstmt = do
       _ <- ifkw
-      cond <- parens parseExp
-      ifBody <- parseBlock
-      elseBody <- optional (elsekw *> parseBlock)
+      cond <- parens Parser.exp
+      ifBody <- block
+      elseBody <- optional (elsekw *> block)
       return $ Ast.IfStmt {cond, ifBody, elseBody}
 
-    parseWhileStmt = do
+    whilestmt = do
       _ <- whilekw
-      cond <- parseExp
-      body <- parseBlock
+      cond <- Parser.exp
+      body <- block
       return Ast.WhileStmt {cond, body}
 
-parseBlock :: PC.Parser Ast.RawBlock
-parseBlock = do
-  stmts <- braces (many parseStmt)
+block :: PC.Parser Ast.RawBlock
+block = do
+  stmts <- braces (many stmt)
   return $ Ast.Block {annot = (), stmts}
 
-parseFun :: PC.Parser Ast.RawFun
-parseFun = do
-  retty <- parseTy
-  id <- parseId
-  args <- parens (commaSep parseVarDef)
-  body <- parseBlock
+fun :: PC.Parser Ast.RawFun
+fun = do
+  retty <- ty
+  id <- Parser.id
+  args <- parens (commaSep vardef)
+  body <- block
   return Ast.Fun {id, args, retty, body}
 
-parseProgram :: PC.Parser Ast.RawProgram
-parseProgram = do
+program :: PC.Parser Ast.RawProgram
+program = do
   _ <- PC.spaces
-  funcs <- many parseFun
+  funcs <- many fun
   _ <- PC.eof
   return Ast.Program {funcs}
