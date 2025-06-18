@@ -9,7 +9,7 @@ module Ast
     Program (..),
     Operator (..),
     Ty (..),
-    Ident,
+    Id,
     VarDef (..),
     RawExp,
     RawStmt,
@@ -20,12 +20,12 @@ module Ast
   )
 where
 
-type Ident = String
+type Id = String
 
 data Ty
-  = Int
-  | Bool
-  | Void
+  = IntTy
+  | BoolTy
+  | VoidTy
   | FunTy
       { argtys :: [Ty],
         retty :: Ty
@@ -34,8 +34,8 @@ data Ty
 
 data Operator
   = Add
-  | Subtract
-  | Multiply
+  | Sub
+  | Mul
   | Assign
   | Equal
   | LessThan
@@ -52,8 +52,8 @@ data Operator
 
 instance Show Operator where
   show Add = "+"
-  show Subtract = "-"
-  show Multiply = "*"
+  show Sub = "-"
+  show Mul = "*"
   show Assign = "="
   show Equal = "=="
   show LessThan = "<"
@@ -82,17 +82,17 @@ data ExpInner ea
   | NumberExp
       { num :: Int
       }
-  | IdentifierExp
-      { id :: Ident
+  | IdifierExp
+      { id :: Id
       }
   | Call
-      { id :: Ident,
+      { id :: Id,
         args :: [Exp ea]
       }
   deriving (Show, Eq)
 
 data VarDef = VarDef
-  { id :: Ident,
+  { id :: Id,
     ty :: Ty
   }
   deriving (Show, Eq)
@@ -104,11 +104,11 @@ data Stmt ea ba
         exp :: Exp ea
       }
   | AssignStmt
-      { id :: Ident,
+      { id :: Id,
         exp :: Exp ea
       }
   | ReturnStmt
-      { exp :: Exp ea
+      { retexp :: Maybe (Exp ea)
       }
   | IfStmt
       { cond :: Exp ea,
@@ -128,7 +128,7 @@ data Block ea ba = Block
   deriving (Show, Eq)
 
 data Fun a ba = Fun
-  { id :: Ident,
+  { id :: Id,
     args :: [VarDef],
     retty :: Ty,
     body :: Block a ba

@@ -46,60 +46,60 @@ typeOp :: Operator -> Ty -> Ty -> Either String Ty
 typeOp op lty rty =
   case op of
     Add
-      | lty == Int && rty == Int -> Right Int
+      | lty == IntTy && rty == IntTy -> Right IntTy
     Add -> Left $ "Type mismatch in addition: " ++ show lty ++ " + " ++ show rty
-    Subtract
-      | lty == Int && rty == Int -> Right Int
-    Subtract -> Left $ "Type mismatch in subtraction: " ++ show lty ++ " - " ++ show rty
-    Multiply
-      | lty == Int && rty == Int -> Right Int
-    Multiply -> Left $ "Type mismatch in multiplication: " ++ show lty ++ " * " ++ show rty
+    Sub
+      | lty == IntTy && rty == IntTy -> Right IntTy
+    Sub -> Left $ "Type mismatch in subtraction: " ++ show lty ++ " - " ++ show rty
+    Mul
+      | lty == IntTy && rty == IntTy -> Right IntTy
+    Mul -> Left $ "Type mismatch in multiplication: " ++ show lty ++ " * " ++ show rty
     Equal
-      | lty == rty -> Right Bool
+      | lty == rty -> Right BoolTy
     Equal -> Left $ "Type mismatch in equality check: " ++ show lty ++ "== " ++ show rty
     NotEqual
-      | lty == rty -> Right Bool
+      | lty == rty -> Right BoolTy
     NotEqual -> Left $ "Type mismatch in inequality check: " ++ show lty ++ " != " ++ show rty
     LessThan
-      | lty == Int && rty == Int -> Right Bool
+      | lty == IntTy && rty == IntTy -> Right BoolTy
     LessThan -> Left $ "Type mismatch in less than check: " ++ show lty ++ " < " ++ show rty
     GreaterThan
-      | lty == Int && rty == Int -> Right Bool
+      | lty == IntTy && rty == IntTy -> Right BoolTy
     GreaterThan -> Left $ "Type mismatch in greater than check: " ++ show lty ++ " > " ++ show rty
     LessThanOrEqual
-      | lty == Int && rty == Int -> Right Bool
+      | lty == IntTy && rty == IntTy -> Right BoolTy
     LessThanOrEqual -> Left $ "Type mismatch in less than or equal check: " ++ show lty ++ " <= " ++ show rty
     GreaterThanOrEqual
-      | lty == Int && rty == Int -> Right Bool
+      | lty == IntTy && rty == IntTy -> Right BoolTy
     GreaterThanOrEqual -> Left $ "Type mismatch in greater than or equal check: " ++ show lty ++ " >= " ++ show rty
     And
-      | lty == Bool && rty == Bool -> Right Bool
+      | lty == BoolTy && rty == BoolTy -> Right BoolTy
     And -> Left $ "Type mismatch in logical AND: " ++ show lty ++ " && " ++ show rty
     Or
-      | lty == Bool && rty == Bool -> Right Bool
+      | lty == BoolTy && rty == BoolTy -> Right BoolTy
     Or -> Left $ "Type mismatch in logical OR: " ++ show lty ++ "|| " ++ show rty
     Not
-      | lty == Bool -> Right Bool
-    Not -> Left $ "Type mismatch in logical NOT: expected Bool, got " ++ show lty
+      | lty == BoolTy -> Right BoolTy
+    Not -> Left $ "Type mismatch in logical NOT: expected BoolTy, got " ++ show lty
     Xor
-      | lty == Bool && rty == Bool -> Right Bool
+      | lty == BoolTy && rty == BoolTy -> Right BoolTy
     Xor -> Left $ "Type mismatch in logical XOR: " ++ show lty ++ " ^ " ++ show rty
     Modulo
-      | lty == Int && rty == Int -> Right Int
+      | lty == IntTy && rty == IntTy -> Right IntTy
     Modulo -> Left $ "Type mismatch in modulo operation: " ++ show lty ++ " % " ++ show rty
     _ -> Left $ "Unsupported operator: " ++ show op
 
 typeExp :: Scope.Scope -> RawExp -> Either String TypedExp
 typeExp curScope Exp {exp}
-  | IdentifierExp {id} <- exp =
+  | IdifierExp {id} <- exp =
       case Scope.lookup id curScope of
         Just Scope.Symbol {ty = FunTy {}} ->
           Left $ "Cannot use function " ++ id ++ " as variable"
         Just Scope.Symbol {ty} ->
-          Right Exp {annot = ty, exp = IdentifierExp {id}}
+          Right Exp {annot = ty, exp = IdifierExp {id}}
         Nothing -> Left $ "Undefined variable: " ++ id
   | NumberExp {num} <- exp =
-      Right Exp {annot = Int, exp = NumberExp {num}}
+      Right Exp {annot = IntTy, exp = NumberExp {num}}
   | BinExp {left, op, right} <- exp = do
       left <- typeExp curScope left
       right <- typeExp curScope right
@@ -170,26 +170,29 @@ typeStmt curScope stmt
   | ExpStmt {exp} <- stmt = do
       exp <- typeExp curScope exp
       Right (ExpStmt {exp}, curScope)
-  | ReturnStmt {exp} <- stmt = do
+  | ReturnStmt {retexp} <- stmt = do
       case Scope.lookup curScope.name curScope of
         Just Scope.Symbol {ty = FunTy {retty}} -> do
-          exp <- typeExp curScope exp
-          let expty = exp.annot
+          (right, expty) <- case retexp of
+            Just exp -> do
+              typedExp <- typeExp curScope exp
+              return (ReturnStmt {retexp = Just typedExp}, typedExp.annot)
+            Nothing -> return (ReturnStmt {retexp = Nothing}, VoidTy)
           if retty == expty
             then
-              Right (ReturnStmt {exp}, curScope)
+              Right (right, curScope)
             else
               Left $
                 "Return expession type: "
                   ++ show expty
-                  ++ "doesn't match function return type: "
+                  ++ " doesn't match function return type: "
                   ++ show retty
         Just _ -> Left "Cannot return from a variable"
         Nothing -> Left "unreachable: undefined function"
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
       cond <- typeExp curScope cond
       let condty = cond.annot
-      if condty == Bool
+      if condty == BoolTy
         then do
           ifBody <- typeBlock curScope ifBody
           case elseBody of
@@ -200,15 +203,15 @@ typeStmt curScope stmt
                 Left err -> Left err
             Nothing ->
               Right (IfStmt {cond, ifBody, elseBody = Nothing}, curScope)
-        else Left $ "Condition in if statement must be of type Bool, got " ++ show condty
+        else Left $ "Condition in if statement must be of type BoolTy, got " ++ show condty
   | WhileStmt {cond, body} <- stmt = do
       cond <- typeExp curScope cond
       let condTy = cond.annot
-      if condTy == Bool
+      if condTy == BoolTy
         then do
           body <- typeBlock curScope body
           Right (WhileStmt {cond, body}, curScope)
-        else Left $ "Condition in while statement must be of type Bool, got " ++ show condTy
+        else Left $ "Condition in while statement must be of type BoolTy, got " ++ show condTy
 
 typeBlock :: Scope.Scope -> RawBlock -> Either String TypedBlock
 typeBlock scope Block {stmts} = do
@@ -227,7 +230,7 @@ typeBlock scope Block {stmts} = do
 
 typeFun :: Scope.Scope -> RawFun -> Either String TypedFun
 typeFun scope Fun {id, args, retty, body = Block {stmts}} = do
-  let innerScope = foldl (flip Scope.insertVar) (Scope.openScope id scope) args
+  let innerScope = foldl (flip Scope.insertArg) (Scope.openScope id scope) args
 
   annotatedStmts <-
     foldM
@@ -251,7 +254,7 @@ typeProgram' scope Program {funcs} = do
   funcs <- mapM (typeFun scope) funcs
   case Scope.lookup "main" scope of
     Just Scope.Symbol {ty = FunTy {retty}} ->
-      if retty == Void
+      if retty == VoidTy
         then Right Program {funcs}
         else Left "Main function must return type Void"
     Just _ -> Left "main cannot be a variable"

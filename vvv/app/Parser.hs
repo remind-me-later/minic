@@ -1,15 +1,14 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Parser (parseProgram) where
 
-import Ast
+import Ast qualified
   ( Block (..),
     Exp (..),
     ExpInner (..),
     Fun (..),
-    Ident,
+    Id,
     Operator (..),
     Program (..),
     RawBlock,
@@ -21,196 +20,187 @@ import Ast
     Ty (..),
     VarDef (..),
   )
-import Control.Applicative (Alternative (many, (<|>)), optional)
-import ParserCombinators qualified as PC (Parser (..), satisfy)
-import Token qualified as TOK (Keyword (..), Punctuation (..), Token (..))
+import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
+import Data.Functor (($>))
+import Text.ParserCombinators.Parsec qualified as PC
 
-type TParser o = PC.Parser [TOK.Token] o
+lex :: PC.Parser a -> PC.Parser a
+lex p = p <* PC.spaces
 
-parseIdent :: TParser Ident
-parseIdent =
-  PC.Parser
-    ( \case
-        TOK.Identifier s : rest -> Just (s, rest)
-        _ -> Nothing
-    )
+keyword :: String -> PC.Parser String
+keyword kw = Parser.lex (PC.string kw)
 
-parseTy :: TParser Ty
+ifkw :: PC.Parser String
+ifkw = keyword "if"
+
+whilekw :: PC.Parser String
+whilekw = keyword "while"
+
+elsekw :: PC.Parser String
+elsekw = keyword "else"
+
+returnkw :: PC.Parser String
+returnkw = keyword "return"
+
+symbol :: String -> PC.Parser String
+symbol sym = Parser.lex (PC.string sym)
+
+parens :: PC.Parser a -> PC.Parser a
+parens p = symbol "(" *> p <* symbol ")"
+
+braces :: PC.Parser a -> PC.Parser a
+braces p = symbol "{" *> p <* symbol "}"
+
+commaSep :: PC.Parser a -> PC.Parser [a]
+commaSep p = PC.sepBy p (symbol ",")
+
+parseId :: PC.Parser Ast.Id
+parseId =
+  let isFirstChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ "_"
+      isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
+   in Parser.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
+
+parseTy :: PC.Parser Ast.Ty
 parseTy =
-  PC.Parser
-    ( \case
-        TOK.Identifier s : rest ->
-          ( case s of
-              "int" -> Just (Int, rest)
-              "bool" -> Just (Bool, rest)
-              "void" -> Just (Void, rest)
-              _ -> Nothing
-          )
-        _ -> Nothing
-    )
+  let parseInt = (keyword "int" $> Ast.IntTy)
+      parseBool = (keyword "bool" $> Ast.BoolTy)
+      parseVoid = (keyword "void" $> Ast.VoidTy)
+   in Parser.lex (parseInt <|> parseBool <|> parseVoid)
 
-parseNum :: TParser Int
+parseNum :: PC.Parser Int
 parseNum =
-  PC.Parser
-    ( \case
-        TOK.Number n : rest -> Just (n, rest)
-        _ -> Nothing
-    )
+  let isDigit c = c `elem` ['0' .. '9']
+   in read <$> Parser.lex (PC.many1 (PC.satisfy isDigit) >>= \digits -> return digits)
 
-parseOp :: Operator -> TParser Operator
-parseOp op =
-  PC.Parser
-    ( \case
-        TOK.Operator op' : rest
-          | op == op' ->
-              Just (op, rest)
-        _ -> Nothing
-    )
-
-parens :: TParser o -> TParser o
-parens p =
-  PC.satisfy (== TOK.Punctuation TOK.LeftParen)
-    *> p
-    <* PC.satisfy (== TOK.Punctuation TOK.RightParen)
-
-braces :: TParser o -> TParser o
-braces p =
-  PC.satisfy (== TOK.Punctuation TOK.LeftBrace)
-    *> p
-    <* PC.satisfy (== TOK.Punctuation TOK.RightBrace)
-
-parseExp :: TParser RawExp
+parseExp :: PC.Parser Ast.RawExp
 parseExp = parseEqExp
   where
-    parseFactor = parseCall <|> parseIdentifierExp <|> parseParenExp <|> parseNumberExp
+    parseFactor =
+      PC.try parseCall
+        <|> PC.try parseIdifierExp
+        <|> PC.try parseParenExp
+        <|> PC.try parseNumberExp
       where
         parseNumberExp = do
           num <- parseNum
-          return Exp {annot = (), exp = NumberExp {num}}
-        parseIdentifierExp = do
-          id <- parseIdent
-          return Exp {annot = (), exp = IdentifierExp {id}}
+          return Ast.Exp {annot = (), exp = Ast.NumberExp {num}}
+        parseIdifierExp = do
+          id <- parseId
+          return Ast.Exp {annot = (), exp = Ast.IdifierExp {id}}
         parseParenExp = parens parseExp
         parseCall = do
-          id <- parseIdent
-          _ <- PC.satisfy (== TOK.Punctuation TOK.LeftParen)
-          args <- parseCommaSeparated0 parseExp
-          _ <- PC.satisfy (== TOK.Punctuation TOK.RightParen)
-          return Exp {annot = (), exp = Call {id, args}}
+          id <- parseId
+          args <- parens (commaSep parseExp)
+          return Ast.Exp {annot = (), exp = Ast.Call {id, args}}
 
     parseMulExp = do
       left <- parseFactor
-      maybeOp <- optional (parseOp Multiply)
+      maybeOp <- optional (symbol "*" $> Ast.Mul)
       case maybeOp of
         Just op -> do
           right <- parseMulExp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
+          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
     parseAddSubExp = do
       left <- parseMulExp
       maybeOp <-
         optional
-          ( parseOp Add
-              <|> parseOp Subtract
+          ( symbol "+" $> Ast.Add
+              <|> symbol "-" $> Ast.Sub
           )
       case maybeOp of
         Just op -> do
           right <- parseAddSubExp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
+          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
     parseEqExp = do
       left <- parseAddSubExp
       maybeOp <-
         optional
-          ( parseOp Equal
-              <|> parseOp NotEqual
-              <|> parseOp LessThan
-              <|> parseOp GreaterThan
-              <|> parseOp LessThanOrEqual
-              <|> parseOp GreaterThanOrEqual
+          ( symbol "==" $> Ast.Equal
+              <|> symbol "!=" $> Ast.NotEqual
+              <|> symbol "<" $> Ast.LessThan
+              <|> symbol ">" $> Ast.GreaterThan
+              <|> symbol "<=" $> Ast.LessThanOrEqual
+              <|> symbol ">=" $> Ast.GreaterThanOrEqual
           )
       case maybeOp of
         Just op -> do
           right <- parseEqExp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
+          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
         Nothing -> return left
 
-parseVarDef :: TParser VarDef
+parseVarDef :: PC.Parser Ast.VarDef
 parseVarDef = do
   ty <- parseTy
-  id <- parseIdent
-  return VarDef {id, ty}
+  id <- parseId
+  return Ast.VarDef {id, ty}
 
-parseStmt :: TParser RawStmt
+parseStmt :: PC.Parser Ast.RawStmt
 parseStmt =
-  parseLetStmt
-    <|> parseReturnStmt
-    <|> parseIfStmt
-    <|> parseWhileStmt
-    <|> parseAssignStmt
-    <|> parseExpStmt
+  PC.try parseLetStmt
+    <|> PC.try parseReturnStmt
+    <|> PC.try parseIfStmt
+    <|> PC.try parseWhileStmt
+    <|> PC.try parseAssignStmt
+    <|> PC.try parseExpStmt
   where
     parseLetStmt = do
       vardef <- parseVarDef
-      _ <- PC.satisfy (== TOK.Operator Assign)
+      _ <- symbol "="
       exp <- parseExp
-      _ <- PC.satisfy (== TOK.Punctuation TOK.SemiColon)
-      return $ LetStmt {vardef, exp}
+      _ <- symbol ";"
+      return $ Ast.LetStmt {vardef, exp}
 
     parseAssignStmt = do
-      id <- parseIdent
-      _ <- PC.satisfy (== TOK.Operator Assign)
+      id <- parseId
+      _ <- symbol "="
       exp <- parseExp
-      _ <- PC.satisfy (== TOK.Punctuation TOK.SemiColon)
-      return $ AssignStmt {id, exp}
+      _ <- symbol ";"
+      return $ Ast.AssignStmt {id, exp}
 
     parseReturnStmt = do
-      _ <- PC.satisfy (== TOK.Keyword TOK.Return)
-      exp <- parseExp
-      _ <- PC.satisfy (== TOK.Punctuation TOK.SemiColon)
-      return $ ReturnStmt {exp}
+      _ <- returnkw
+      retexp <- optional parseExp
+      _ <- symbol ";"
+      return $ Ast.ReturnStmt {retexp}
 
     parseExpStmt = do
       exp <- parseExp
-      _ <- PC.satisfy (== TOK.Punctuation TOK.SemiColon)
-      return ExpStmt {exp}
+      _ <- symbol ";"
+      return Ast.ExpStmt {exp}
 
     parseIfStmt = do
-      _ <- PC.satisfy (== TOK.Keyword TOK.If)
+      _ <- ifkw
       cond <- parens parseExp
       ifBody <- parseBlock
-      elseBody <- optional (PC.satisfy (== TOK.Keyword TOK.Else) *> parseBlock)
-      return $ IfStmt {cond, ifBody, elseBody}
+      elseBody <- optional (elsekw *> parseBlock)
+      return $ Ast.IfStmt {cond, ifBody, elseBody}
 
     parseWhileStmt = do
-      _ <- PC.satisfy (== TOK.Keyword TOK.While)
+      _ <- whilekw
       cond <- parseExp
       body <- parseBlock
-      return WhileStmt {cond, body}
+      return Ast.WhileStmt {cond, body}
 
-parseBlock :: TParser RawBlock
+parseBlock :: PC.Parser Ast.RawBlock
 parseBlock = do
   stmts <- braces (many parseStmt)
-  return $ Block {annot = (), stmts}
+  return $ Ast.Block {annot = (), stmts}
 
-parseCommaSeparated :: TParser a -> TParser [a]
-parseCommaSeparated p = p `parseSepBy` PC.satisfy (== TOK.Punctuation TOK.Comma)
-  where
-    parseSepBy :: TParser a -> TParser b -> TParser [a]
-    parseSepBy p' sep = (:) <$> p' <*> many (sep *> p')
-
-parseCommaSeparated0 :: TParser a -> TParser [a]
-parseCommaSeparated0 p = parseCommaSeparated p <|> pure []
-
-parseFun :: TParser RawFun
+parseFun :: PC.Parser Ast.RawFun
 parseFun = do
   retty <- parseTy
-  id <- parseIdent
-  args <- parens (parseCommaSeparated0 parseVarDef)
+  id <- parseId
+  args <- parens (commaSep parseVarDef)
   body <- parseBlock
   return Ast.Fun {id, args, retty, body}
 
-parseProgram :: TParser RawProgram
-parseProgram = Program <$> many parseFun
+parseProgram :: PC.Parser Ast.RawProgram
+parseProgram = do
+  _ <- PC.spaces
+  funcs <- many parseFun
+  _ <- PC.eof
+  return Ast.Program {funcs}

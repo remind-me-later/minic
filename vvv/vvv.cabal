@@ -32,7 +32,7 @@ version:            0.1.0.0
 license:            BSD-3-Clause
 
 -- The file containing the license text.
-license-file:       LICENSE
+license-file:       LICENSE.md
 
 -- The package author(s).
 author:             Ricardo Maurizio Paul
@@ -46,7 +46,7 @@ category:           Language
 build-type:         Simple
 
 -- Extra doc files to be distributed with the package, such as a CHANGELOG or a README.
-extra-doc-files:    CHANGELOG.md
+-- extra-doc-files:    CHANGELOG.md
 
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
 -- extra-source-files:
@@ -62,7 +62,7 @@ executable vvv
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: ParserCombinators Token Parser Ast TypeCheck Scope Ir
+    other-modules: Parser Ast TypeCheck Scope Ir
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -70,6 +70,7 @@ executable vvv
     -- Other library packages from which modules are imported.
     build-depends:    base >= 4.17
                         , containers >= 0.6
+                        , parsec >= 3.1
 
     -- Directories containing source files.
     hs-source-dirs:   app
