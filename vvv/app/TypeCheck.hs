@@ -28,12 +28,9 @@ import Ast
     Ty (..),
     VarDef (..),
   )
-import Control.Applicative ((<|>))
 import Control.Monad (when)
 import Control.Monad.State (MonadState (..), State, gets, runState)
 import Control.Monad.State.Lazy (modify)
-import Data.Map qualified as Map
-import Env (openEnv)
 import Env qualified
 
 type TypedExp = Exp Ty
@@ -47,7 +44,7 @@ type TypedFun = Fun Ty Env.Env
 type TypedProgram = Program Ty Env.Env
 
 data TypingState = TypingState
-  { envStack :: [Env.Env],
+  { envStack :: Env.EnvStack,
     errors :: [String]
   }
 
@@ -56,32 +53,23 @@ addError err ts =
   ts {errors = err : ts.errors}
 
 insertVar :: VarDef -> TypingState -> TypingState
-insertVar v ts@TypingState {envStack = head : tail} =
-  ts {envStack = Env.insertVar v head : tail}
-insertVar _ ts@TypingState {envStack = []} =
-  ts {errors = "No scopes available to insert variable" : ts.errors}
+insertVar v ts@TypingState {envStack} = ts {envStack = Env.insertVar v envStack}
+
+insertArg :: VarDef -> TypingState -> TypingState
+insertArg v ts@TypingState {envStack} = ts {envStack = Env.insertArg v envStack}
 
 pushEnv :: Env.Env -> TypingState -> TypingState
 pushEnv newEnv ts@TypingState {envStack} =
-  ts {envStack = newEnv : envStack}
+  ts {envStack = Env.pushEnv newEnv envStack}
 
 popEnv :: TypingState -> TypingState
-popEnv ts@TypingState {envStack = _ : tail} =
-  ts {envStack = tail}
-popEnv ts@TypingState {envStack = []} =
-  ts {errors = "No scopes available to pop" : ts.errors}
+popEnv ts@TypingState {envStack} = ts {envStack = Env.popEnv envStack}
 
 peekEnv :: TypingState -> Env.Env
-peekEnv TypingState {envStack = head : _} = head
-peekEnv TypingState {envStack = []} =
-  error "Unreachable: No scopes available to peek"
+peekEnv TypingState {envStack} = Env.peekEnv envStack
 
 lookup :: String -> TypingState -> Maybe Env.Symbol
-lookup id ts@TypingState {envStack = head : tail} =
-  Env.lookup id head <|> case tail of
-    [] -> Nothing
-    _ -> TypeCheck.lookup id (ts {envStack = tail})
-lookup _ TypingState {envStack = []} = Nothing
+lookup id TypingState {envStack} = Env.lookup id envStack
 
 typeOp :: Operator -> Ty -> Ty -> Either String Ty
 typeOp op lty rty =
@@ -133,8 +121,8 @@ typeOp op lty rty =
 typeExp :: RawExp -> State TypingState TypedExp
 typeExp Exp {exp}
   | IdExp {id} <- exp = do
-      ts <- get
-      case TypeCheck.lookup id ts of
+      symb <- gets (TypeCheck.lookup id)
+      case symb of
         Just Env.Symbol {ty = FunTy {}} -> do
           modify (addError ("Cannot use function " ++ id ++ " as variable"))
           return Exp {annot = VoidTy, exp = IdExp {id}}
@@ -238,9 +226,7 @@ typeStmt stmt
       return ExpStmt {exp}
   | ReturnStmt {retexp} <- stmt = do
       ts <- get
-      let curEnv = case envStack ts of
-            [] -> error "Unreachable: No scopes available"
-            (s : _) -> s
+      let curEnv = Env.peekEnv (envStack ts)
       case TypeCheck.lookup curEnv.name ts of
         Just Env.Symbol {ty = FunTy {retty}} -> do
           (right, expty) <- case retexp of
@@ -265,7 +251,7 @@ typeStmt stmt
           modify (addError "Cannot return from a variable")
           return ReturnStmt {retexp = Nothing}
         Nothing -> do
-          modify (addError "Unreachable: undefined function")
+          modify (addError $ "Unreachable: undefined function" ++ curEnv.name)
           return ReturnStmt {retexp = Nothing}
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
       cond <- typeExp cond
@@ -293,7 +279,7 @@ typeStmt stmt
 
 typeBlock :: RawBlock -> State TypingState TypedBlock
 typeBlock Block {stmts} = do
-  let innerEnv = Env.openEnv "block"
+  let innerEnv = Env.emptyEnv "block"
   modify (pushEnv innerEnv)
   annotatedStmts <- mapM typeStmt stmts
   scope <- gets peekEnv
@@ -302,8 +288,8 @@ typeBlock Block {stmts} = do
 
 typeFun :: RawFun -> State TypingState TypedFun
 typeFun Fun {id, args, retty, body = Block {stmts}} = do
-  let innerEnv = foldl (flip Env.insertArg) (Env.openEnv id) args
-  modify (pushEnv innerEnv)
+  modify (pushEnv $ Env.emptyEnv id)
+  mapM_ (modify . insertArg) args
   annotatedStmts <- mapM typeStmt stmts
   env <- gets peekEnv
   let annotatedBody = Block {annot = env, stmts = reverse annotatedStmts}
@@ -322,21 +308,17 @@ typeProgram' Program {funcs} = do
       modify (addError "Main function must be a function")
     Nothing -> return ()
 
-  return Program {funcs}
+  globalScope <- gets peekEnv
 
-buildGlobalEnv :: RawProgram -> Env.Env
+  return Program {annot = globalScope, funcs}
+
+buildGlobalEnv :: RawProgram -> Env.EnvStack
 buildGlobalEnv Program {funcs} =
-  foldl
-    (flip Env.insertFunction)
-    Env.Env
-      { name = "global",
-        symbols = Map.empty
-      }
-    funcs
+  foldl (flip Env.insertFunction) (Env.emptyEnvStack "global") funcs
 
 typeProgram :: RawProgram -> Either [String] TypedProgram
 typeProgram program =
-  let initialState = TypingState {envStack = [buildGlobalEnv program], errors = []}
+  let initialState = TypingState {envStack = buildGlobalEnv program, errors = []}
       (typedProgram, finalState) = runState (typeProgram' program) initialState
    in if null finalState.errors
         then Right typedProgram

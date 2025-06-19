@@ -62,7 +62,7 @@ executable vvv
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: Parser Ast TypeCheck Env Ir
+    other-modules: Parser Ast TypeCheck Env Mir
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -72,7 +72,6 @@ executable vvv
                         , containers >= 0.6
                         , parsec >= 3.1
                         , mtl >= 2.3
-                        , lens >= 5.3
 
     -- Directories containing source files.
     hs-source-dirs:   app

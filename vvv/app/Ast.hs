@@ -135,8 +135,9 @@ data Fun a ba = Fun
   }
   deriving (Show, Eq)
 
-newtype Program a ba = Program
-  { funcs :: [Fun a ba]
+data Program a ba = Program
+  { annot :: ba,
+    funcs :: [Fun a ba]
   }
   deriving (Show, Eq)
 

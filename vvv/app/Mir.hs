@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Ir
+module Mir
   ( Temp,
     Label,
     MirOperand (..),
@@ -27,10 +27,10 @@ import Ast qualified
     Ty (..),
     VarDef (..),
   )
-import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, get, modify, runState)
 import Control.Monad.State.Class (gets)
+import Env (emptyEnvStack)
 import Env qualified
 import TypeCheck
   ( TypedBlock,
@@ -135,7 +135,7 @@ instance Show MirFunction where
       ++ entryLabel
       ++ "\n"
       ++ "Blocks:\n"
-      ++ unlines (map show blocks)
+      ++ unlines (reverse $ map show blocks)
 
 -- The entire program in IR
 newtype MirProgram = IrProgram
@@ -151,7 +151,7 @@ data TranslationState = TranslationState
   { currentTemp :: Temp,
     labelCount :: Int,
     blocks :: [MirBasicBlock],
-    envStack :: [Env.Env]
+    envStack :: Env.EnvStack
   }
 
 incTemp :: TranslationState -> TranslationState
@@ -166,25 +166,23 @@ addInstsToBlock insts ts@TranslationState {blocks = curBlock : restBlocks} =
 addInstsToBlock _ TranslationState {blocks = []} =
   error "No current block to add instructions to"
 
-openBlock :: String -> TranslationState -> TranslationState
-openBlock label ts@TranslationState {blocks} =
+pushBlock :: String -> TranslationState -> TranslationState
+pushBlock label ts@TranslationState {blocks} =
   ts {blocks = MirBasicBlock {label = label, instrs = []} : blocks}
+
+popBlocks :: TranslationState -> TranslationState
+popBlocks ts = ts {blocks = []}
 
 stackEnv :: Env.Env -> TranslationState -> TranslationState
 stackEnv env ts@TranslationState {envStack} =
-  ts {envStack = env : envStack}
+  ts {envStack = Env.pushEnv env envStack}
 
 popEnv :: TranslationState -> TranslationState
 popEnv ts@TranslationState {envStack} =
-  case envStack of
-    [] -> error "No environment to pop"
-    (_ : rest) -> ts {envStack = rest}
+  ts {envStack = Env.popEnv envStack}
 
 lookupId :: Ast.Id -> TranslationState -> Maybe Env.Symbol
-lookupId id ts@TranslationState {envStack} =
-  case envStack of
-    [] -> Nothing
-    (env : rest) -> Env.lookup id env <|> lookupId id (ts {envStack = rest})
+lookupId id TranslationState {envStack} = Env.lookup id envStack
 
 transExp :: TypedExp -> State TranslationState [MirInstr]
 transExp Ast.Exp {annot, exp}
@@ -231,7 +229,6 @@ transExp Ast.Exp {annot, exp}
           return (argInsts ++ [Call Nothing id (length args)])
         _ -> do
           TranslationState {currentTemp = t} <- get
-          modify incTemp
           return (argInsts ++ [Call (Just t) id (length args)])
 
 transStmt :: TypedStmt -> State TranslationState ()
@@ -291,7 +288,7 @@ transStmt stmt
           modify (addInstsToBlock [Jump endLabel])
           _ <- transBlock elseLabel elseBody
           modify (addInstsToBlock [Jump endLabel])
-          modify (openBlock endLabel)
+          modify (pushBlock endLabel)
         Nothing -> do
           TranslationState {labelCount = l} <- get
           modify incLabel
@@ -301,7 +298,7 @@ transStmt stmt
           modify (addInstsToBlock $ condInstrs ++ [CondJump t thenLabel endLabel])
           _ <- transBlock thenLabel ifBody
           modify (addInstsToBlock [Jump endLabel])
-          modify (openBlock endLabel)
+          modify (pushBlock endLabel)
   | Ast.WhileStmt {cond, body} <- stmt = do
       TranslationState {labelCount = l} <- get
       modify incLabel
@@ -314,41 +311,50 @@ transStmt stmt
       let endLabel = "while_end_" ++ show l
       modify incLabel
       condInstrs <- transExp cond
-      modify (openBlock condLabel)
+      modify (pushBlock condLabel)
       TranslationState {currentTemp = t} <- get
       modify (addInstsToBlock $ condInstrs ++ [CondJump t loopLabel endLabel])
       _ <- transBlock loopLabel body
       modify (addInstsToBlock [Jump condLabel])
-      modify (openBlock endLabel)
+      modify (pushBlock endLabel)
 
 transBlock :: String -> TypedBlock -> State TranslationState ()
 transBlock label Ast.Block {annot = scope, stmts} = do
-  modify (openBlock label)
+  modify (pushBlock label)
   modify (stackEnv scope)
   foldM_ (\_ stmt -> transStmt stmt) () (reverse stmts)
   modify popEnv
 
-transFun :: TypedFun -> MirFunction
-transFun Ast.Fun {id, args, body} =
-  let funName = id
-      funArgs = map (\Ast.VarDef {id} -> id) args
-      entryLabel = funName ++ "_entry"
-      initialState =
+transFun :: TypedFun -> State TranslationState MirFunction
+transFun Ast.Fun {id, args, body} = do
+  TranslationState {labelCount = l} <- get
+  modify incLabel
+  let entryLabel = "entry_" ++ show l
+  _ <- transBlock entryLabel body
+  blocks <- gets blocks
+  modify popEnv
+  modify popBlocks
+  let args' = map (\Ast.VarDef {id} -> id) args
+  return MirFunction {irFunName = id, irFunArgs = args', irFunEntryLabel = entryLabel, irFunBlocks = blocks}
+
+transProgram :: TypedProgram -> MirProgram
+transProgram Ast.Program {annot, funcs} =
+  let initialState =
         TranslationState
           { currentTemp = 0,
             labelCount = 0,
             blocks = [],
-            envStack = []
+            envStack = Env.pushEnv annot (Env.emptyEnvStack "global")
           }
-      (_, ts) = runState (transBlock entryLabel body) initialState
-   in MirFunction
-        { irFunName = funName,
-          irFunArgs = funArgs,
-          irFunEntryLabel = entryLabel,
-          irFunBlocks = reverse ts.blocks
-        }
-
-transProgram :: TypedProgram -> MirProgram
-transProgram Ast.Program {funcs} =
-  let irFunctions = map transFun funcs
-   in IrProgram {irFunctions = irFunctions}
+      (mirFuncs, _) =
+        runState
+          ( foldM
+              ( \acc fun -> do
+                  mirFun <- transFun fun
+                  return (acc ++ [mirFun])
+              )
+              []
+              funcs
+          )
+          initialState
+   in IrProgram {irFunctions = mirFuncs}

@@ -1,6 +1,6 @@
 module Main where
 
-import Ir (transProgram)
+import Mir (transProgram)
 import Parser qualified (program)
 import System.Environment (getArgs)
 import Text.Parsec qualified as Parsec
@@ -23,8 +23,8 @@ main = do
     Right table -> return table
     Left errs -> error $ "Type checking failed: " ++ show errs
 
-  putStrLn "Typed AST:"
-  print typedAst
+  -- putStrLn "Typed AST:"
+  -- print typedAst
 
   let mirProgram = transProgram typedAst
   putStrLn "MIR Program:"

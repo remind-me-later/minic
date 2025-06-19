@@ -203,4 +203,4 @@ program = do
   _ <- PC.spaces
   funcs <- many fun
   _ <- PC.eof
-  return Ast.Program {funcs}
+  return Ast.Program {annot = (), funcs}
