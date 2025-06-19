@@ -86,7 +86,7 @@ exp = eqexp
           return Ast.Exp {annot = (), exp = Ast.NumberExp {num}}
         idexp = do
           id <- Parser.id
-          return Ast.Exp {annot = (), exp = Ast.IdifierExp {id}}
+          return Ast.Exp {annot = (), exp = Ast.IdExp {id}}
         parenexp = parens Parser.exp
         callexp = do
           id <- Parser.id

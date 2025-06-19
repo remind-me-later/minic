@@ -28,19 +28,60 @@ import Ast
     Ty (..),
     VarDef (..),
   )
-import Control.Monad (foldM)
+import Control.Applicative ((<|>))
+import Control.Monad (when)
+import Control.Monad.State (MonadState (..), State, gets, runState)
+import Control.Monad.State.Lazy (modify)
 import Data.Map qualified as Map
-import Scope qualified
+import Env (openEnv)
+import Env qualified
 
 type TypedExp = Exp Ty
 
-type TypedStmt = Stmt Ty Scope.Scope
+type TypedStmt = Stmt Ty Env.Env
 
-type TypedBlock = Block Ty Scope.Scope
+type TypedBlock = Block Ty Env.Env
 
-type TypedFun = Fun Ty Scope.Scope
+type TypedFun = Fun Ty Env.Env
 
-type TypedProgram = Program Ty Scope.Scope
+type TypedProgram = Program Ty Env.Env
+
+data TypingState = TypingState
+  { envStack :: [Env.Env],
+    errors :: [String]
+  }
+
+addError :: String -> TypingState -> TypingState
+addError err ts =
+  ts {errors = err : ts.errors}
+
+insertVar :: VarDef -> TypingState -> TypingState
+insertVar v ts@TypingState {envStack = head : tail} =
+  ts {envStack = Env.insertVar v head : tail}
+insertVar _ ts@TypingState {envStack = []} =
+  ts {errors = "No scopes available to insert variable" : ts.errors}
+
+pushEnv :: Env.Env -> TypingState -> TypingState
+pushEnv newEnv ts@TypingState {envStack} =
+  ts {envStack = newEnv : envStack}
+
+popEnv :: TypingState -> TypingState
+popEnv ts@TypingState {envStack = _ : tail} =
+  ts {envStack = tail}
+popEnv ts@TypingState {envStack = []} =
+  ts {errors = "No scopes available to pop" : ts.errors}
+
+peekEnv :: TypingState -> Env.Env
+peekEnv TypingState {envStack = head : _} = head
+peekEnv TypingState {envStack = []} =
+  error "Unreachable: No scopes available to peek"
+
+lookup :: String -> TypingState -> Maybe Env.Symbol
+lookup id ts@TypingState {envStack = head : tail} =
+  Env.lookup id head <|> case tail of
+    [] -> Nothing
+    _ -> TypeCheck.lookup id (ts {envStack = tail})
+lookup _ TypingState {envStack = []} = Nothing
 
 typeOp :: Operator -> Ty -> Ty -> Either String Ty
 typeOp op lty rty =
@@ -89,187 +130,214 @@ typeOp op lty rty =
     Modulo -> Left $ "Type mismatch in modulo operation: " ++ show lty ++ " % " ++ show rty
     _ -> Left $ "Unsupported operator: " ++ show op
 
-typeExp :: Scope.Scope -> RawExp -> Either String TypedExp
-typeExp curScope Exp {exp}
-  | IdifierExp {id} <- exp =
-      case Scope.lookup id curScope of
-        Just Scope.Symbol {ty = FunTy {}} ->
-          Left $ "Cannot use function " ++ id ++ " as variable"
-        Just Scope.Symbol {ty} ->
-          Right Exp {annot = ty, exp = IdifierExp {id}}
-        Nothing -> Left $ "Undefined variable: " ++ id
+typeExp :: RawExp -> State TypingState TypedExp
+typeExp Exp {exp}
+  | IdExp {id} <- exp = do
+      ts <- get
+      case TypeCheck.lookup id ts of
+        Just Env.Symbol {ty = FunTy {}} -> do
+          modify (addError ("Cannot use function " ++ id ++ " as variable"))
+          return Exp {annot = VoidTy, exp = IdExp {id}}
+        Just Env.Symbol {ty} ->
+          return Exp {annot = ty, exp = IdExp {id}}
+        Nothing -> do
+          modify (addError ("Undefined variable: " ++ id))
+          return Exp {annot = VoidTy, exp = IdExp {id}}
   | NumberExp {num} <- exp =
-      Right Exp {annot = IntTy, exp = NumberExp {num}}
+      return Exp {annot = IntTy, exp = NumberExp {num}}
   | BinExp {left, op, right} <- exp = do
-      left <- typeExp curScope left
-      right <- typeExp curScope right
+      left <- typeExp left
+      right <- typeExp right
       let lty = left.annot
           rty = right.annot
       case typeOp op lty rty of
-        Right ty -> Right Exp {annot = ty, exp = BinExp {left, op, right}}
-        Left err -> Left err
-  | Call {id, args} <- exp =
-      case Scope.lookup id curScope of
-        Just Scope.Symbol {ty = FunTy {argtys, retty}} ->
+        Right ty -> return Exp {annot = ty, exp = BinExp {left, op, right}}
+        Left err -> do
+          modify (addError err)
+          return Exp {annot = VoidTy, exp = BinExp {left, op, right}}
+  | Call {id, args} <- exp = do
+      ts <- get
+      args <- mapM typeExp args
+
+      case TypeCheck.lookup id ts of
+        Just Env.Symbol {ty = FunTy {argtys, retty}} ->
           if length args /= length argtys
-            then
-              Left $
-                "Function "
-                  ++ id
-                  ++ " expects "
-                  ++ show (length argtys)
-                  ++ " arguments, got "
-                  ++ show (length args)
+            then do
+              modify
+                ( addError
+                    ( "Function "
+                        ++ id
+                        ++ " expects "
+                        ++ show (length argtys)
+                        ++ " arguments, got "
+                        ++ show (length args)
+                    )
+                )
+              return
+                Exp {annot = VoidTy, exp = Call {id, args}}
             else do
-              args <- mapM (typeExp curScope) args
               if ((\e -> e.annot) <$> args) == argtys
                 then
-                  Right
+                  return
                     Exp
                       { annot = retty,
                         exp = Call {id, args}
                       }
-                else
-                  Left $
-                    "Argument type mismatch for function "
-                      ++ id
-                      ++ ": expected "
-                      ++ show argtys
-                      ++ ", got "
-                      ++ show args
-        Just Scope.Symbol {ty} ->
-          Left $ "Cannot call variable of type: " ++ show ty ++ " as function: " ++ id
-        Nothing -> Left $ "Undefined function: " ++ id
+                else do
+                  modify
+                    ( addError
+                        ( "Argument type mismatch for function "
+                            ++ id
+                            ++ ": expected "
+                            ++ show argtys
+                            ++ ", got "
+                            ++ show (map (\e -> e.annot) args)
+                        )
+                    )
+                  return Exp {annot = VoidTy, exp = Call {id, args}}
+        Just Env.Symbol {ty} -> do
+          -- Left $ "Cannot call variable of type: " ++ show ty ++ " as function: " ++ id
+          modify (addError ("Cannot call variable: " ++ id ++ " of type: " ++ show ty))
+          return Exp {annot = VoidTy, exp = Call {id, args}}
+        Nothing -> do
+          modify (addError ("Undefined function: " ++ id))
+          return Exp {annot = VoidTy, exp = Call {id, args}}
 
-typeStmt :: Scope.Scope -> RawStmt -> Either String (TypedStmt, Scope.Scope)
-typeStmt curScope stmt
+typeStmt :: RawStmt -> State TypingState TypedStmt
+typeStmt stmt
   | LetStmt {vardef = v@VarDef {ty}, exp} <- stmt = do
-      exp <- typeExp curScope exp
+      exp <- typeExp exp
       let expTy = exp.annot
       if expTy == ty
-        then
-          Right
-            ( LetStmt
-                { vardef = v,
-                  exp
-                },
-              Scope.insertVar v curScope
-            )
-        else Left $ "Type mismatch: expected " ++ show ty ++ ", got " ++ show expTy
+        then do
+          modify $ insertVar v
+          return LetStmt {vardef = v, exp}
+        else do
+          modify (addError ("Type mismatch in let statement: expected " ++ show ty ++ ", got " ++ show expTy))
+          return LetStmt {vardef = v, exp = Exp {annot = VoidTy, exp = IdExp {id = v.id}}}
   | AssignStmt {id, exp} <- stmt = do
-      case Scope.lookup id curScope of
-        Just Scope.Symbol {ty = FunTy {}} -> Left $ "Cannot assign to function: " ++ id
-        Just Scope.Symbol {ty} -> do
-          exp <- typeExp curScope exp
+      ts <- get
+      case TypeCheck.lookup id ts of
+        Just Env.Symbol {ty = FunTy {}} -> do
+          modify (addError ("Cannot assign to function: " ++ id))
+          return AssignStmt {id, exp = Exp {annot = VoidTy, exp = IdExp {id}}}
+        Just Env.Symbol {ty} -> do
+          exp <- typeExp exp
           let expty = exp.annot
           if expty == ty
             then
-              Right (AssignStmt {id, exp}, curScope)
-            else Left $ "Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show expty
-        Nothing -> Left $ "Undefined variable: " ++ id
+              return AssignStmt {id, exp}
+            else do
+              modify (addError ("Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show expty))
+              return AssignStmt {id, exp = Exp {annot = VoidTy, exp = IdExp {id}}}
+        Nothing -> do
+          modify (addError ("Undefined variable: " ++ id))
+          return AssignStmt {id, exp = Exp {annot = VoidTy, exp = IdExp {id}}}
   | ExpStmt {exp} <- stmt = do
-      exp <- typeExp curScope exp
-      Right (ExpStmt {exp}, curScope)
+      exp <- typeExp exp
+      return ExpStmt {exp}
   | ReturnStmt {retexp} <- stmt = do
-      case Scope.lookup curScope.name curScope of
-        Just Scope.Symbol {ty = FunTy {retty}} -> do
+      ts <- get
+      let curEnv = case envStack ts of
+            [] -> error "Unreachable: No scopes available"
+            (s : _) -> s
+      case TypeCheck.lookup curEnv.name ts of
+        Just Env.Symbol {ty = FunTy {retty}} -> do
           (right, expty) <- case retexp of
             Just exp -> do
-              typedExp <- typeExp curScope exp
+              typedExp <- typeExp exp
               return (ReturnStmt {retexp = Just typedExp}, typedExp.annot)
             Nothing -> return (ReturnStmt {retexp = Nothing}, VoidTy)
           if retty == expty
             then
-              Right (right, curScope)
-            else
-              Left $
-                "Return expession type: "
-                  ++ show expty
-                  ++ " doesn't match function return type: "
-                  ++ show retty
-        Just _ -> Left "Cannot return from a variable"
-        Nothing -> Left "unreachable: undefined function"
+              return right
+            else do
+              modify
+                ( addError
+                    ( "Return expression type: "
+                        ++ show expty
+                        ++ " doesn't match function return type: "
+                        ++ show retty
+                    )
+                )
+              return right
+        Just _ -> do
+          modify (addError "Cannot return from a variable")
+          return ReturnStmt {retexp = Nothing}
+        Nothing -> do
+          modify (addError "Unreachable: undefined function")
+          return ReturnStmt {retexp = Nothing}
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
-      cond <- typeExp curScope cond
+      cond <- typeExp cond
       let condty = cond.annot
-      if condty == BoolTy
-        then do
-          ifBody <- typeBlock curScope ifBody
-          case elseBody of
-            Just elseBlock ->
-              case typeBlock curScope elseBlock of
-                Right elseAnnot ->
-                  Right (IfStmt {cond, ifBody, elseBody = Just elseAnnot}, curScope)
-                Left err -> Left err
-            Nothing ->
-              Right (IfStmt {cond, ifBody, elseBody = Nothing}, curScope)
-        else Left $ "Condition in if statement must be of type BoolTy, got " ++ show condty
+
+      when (condty /= BoolTy) $
+        modify (addError ("Condition in if statement must be of type BoolTy, got " ++ show condty))
+
+      ifBody <- typeBlock ifBody
+      case elseBody of
+        Just elseBlock -> do
+          elseAnnot <- typeBlock elseBlock
+          return IfStmt {cond, ifBody, elseBody = Just elseAnnot}
+        Nothing ->
+          return IfStmt {cond, ifBody, elseBody = Nothing}
   | WhileStmt {cond, body} <- stmt = do
-      cond <- typeExp curScope cond
+      cond <- typeExp cond
       let condTy = cond.annot
-      if condTy == BoolTy
-        then do
-          body <- typeBlock curScope body
-          Right (WhileStmt {cond, body}, curScope)
-        else Left $ "Condition in while statement must be of type BoolTy, got " ++ show condTy
 
-typeBlock :: Scope.Scope -> RawBlock -> Either String TypedBlock
-typeBlock scope Block {stmts} = do
-  let innerScope = Scope.openScope "block" scope
+      when (condTy /= BoolTy) $
+        modify (addError ("Condition in while statement must be of type BoolTy, got " ++ show condTy))
 
-  annotatedStmts <-
-    foldM
-      ( \(acc, nextScope) stmt -> do
-          (annotatedStmt, nextScope) <- typeStmt nextScope stmt
-          return (annotatedStmt : acc, nextScope)
-      )
-      ([], innerScope)
-      stmts
+      body <- typeBlock body
+      return WhileStmt {cond, body}
 
-  Right Block {annot = snd annotatedStmts, stmts = reverse . fst $ annotatedStmts}
+typeBlock :: RawBlock -> State TypingState TypedBlock
+typeBlock Block {stmts} = do
+  let innerEnv = Env.openEnv "block"
+  modify (pushEnv innerEnv)
+  annotatedStmts <- mapM typeStmt stmts
+  scope <- gets peekEnv
+  modify popEnv
+  return Block {annot = scope, stmts = reverse annotatedStmts}
 
-typeFun :: Scope.Scope -> RawFun -> Either String TypedFun
-typeFun scope Fun {id, args, retty, body = Block {stmts}} = do
-  let innerScope = foldl (flip Scope.insertArg) (Scope.openScope id scope) args
+typeFun :: RawFun -> State TypingState TypedFun
+typeFun Fun {id, args, retty, body = Block {stmts}} = do
+  let innerEnv = foldl (flip Env.insertArg) (Env.openEnv id) args
+  modify (pushEnv innerEnv)
+  annotatedStmts <- mapM typeStmt stmts
+  env <- gets peekEnv
+  let annotatedBody = Block {annot = env, stmts = reverse annotatedStmts}
+  modify popEnv
+  return Fun {id, args, retty, body = annotatedBody}
 
-  annotatedStmts <-
-    foldM
-      ( \(acc, nextScope) stmt -> do
-          (annotatedStmt, nextScope) <- typeStmt nextScope stmt
-          return (annotatedStmt : acc, nextScope)
-      )
-      ([], innerScope)
-      stmts
+typeProgram' :: RawProgram -> State TypingState TypedProgram
+typeProgram' Program {funcs} = do
+  funcs <- mapM typeFun funcs
+  ts <- get
+  case TypeCheck.lookup "main" ts of
+    Just Env.Symbol {ty = FunTy {retty}} -> do
+      when (retty /= VoidTy) $
+        modify (addError "Main function must return type Void")
+    Just _ -> do
+      modify (addError "Main function must be a function")
+    Nothing -> return ()
 
-  Right
-    Fun
-      { id,
-        args,
-        retty,
-        body = Block {annot = snd annotatedStmts, stmts = reverse . fst $ annotatedStmts}
-      }
+  return Program {funcs}
 
-typeProgram' :: Scope.Scope -> RawProgram -> Either String TypedProgram
-typeProgram' scope Program {funcs} = do
-  funcs <- mapM (typeFun scope) funcs
-  case Scope.lookup "main" scope of
-    Just Scope.Symbol {ty = FunTy {retty}} ->
-      if retty == VoidTy
-        then Right Program {funcs}
-        else Left "Main function must return type Void"
-    Just _ -> Left "main cannot be a variable"
-    Nothing -> Right Program {funcs}
-
-buildGlobalScope :: RawProgram -> Scope.Scope
-buildGlobalScope Program {funcs} =
+buildGlobalEnv :: RawProgram -> Env.Env
+buildGlobalEnv Program {funcs} =
   foldl
-    (flip Scope.insertFunction)
-    Scope.Scope
+    (flip Env.insertFunction)
+    Env.Env
       { name = "global",
-        symbols = Map.empty,
-        parent = Nothing
+        symbols = Map.empty
       }
     funcs
 
-typeProgram :: RawProgram -> Either String TypedProgram
-typeProgram program = typeProgram' (buildGlobalScope program) program
+typeProgram :: RawProgram -> Either [String] TypedProgram
+typeProgram program =
+  let initialState = TypingState {envStack = [buildGlobalEnv program], errors = []}
+      (typedProgram, finalState) = runState (typeProgram' program) initialState
+   in if null finalState.errors
+        then Right typedProgram
+        else Left finalState.errors

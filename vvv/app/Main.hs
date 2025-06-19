@@ -21,10 +21,10 @@ main = do
 
   typedAst <- case typeProgram ast of
     Right table -> return table
-    Left err -> error $ "Type checking failed: " ++ err
+    Left errs -> error $ "Type checking failed: " ++ show errs
 
-  -- putStrLn "Typed AST:"
-  -- print typedAst
+  putStrLn "Typed AST:"
+  print typedAst
 
   let mirProgram = transProgram typedAst
   putStrLn "MIR Program:"

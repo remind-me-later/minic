@@ -27,9 +27,11 @@ import Ast qualified
     Ty (..),
     VarDef (..),
   )
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, get, modify, runState)
-import Scope qualified
+import Control.Monad.State.Class (gets)
+import Env qualified
 import TypeCheck
   ( TypedBlock,
     TypedExp,
@@ -148,58 +150,55 @@ instance Show MirProgram where
 data TranslationState = TranslationState
   { currentTemp :: Temp,
     labelCount :: Int,
-    curBlock :: MirBasicBlock,
-    restBlocks :: [MirBasicBlock]
+    blocks :: [MirBasicBlock],
+    envStack :: [Env.Env]
   }
 
 incTemp :: TranslationState -> TranslationState
-incTemp (TranslationState t lc cur rest) =
-  TranslationState
-    { currentTemp = t + 1,
-      labelCount = lc,
-      curBlock = cur,
-      restBlocks = rest
-    }
+incTemp ts@TranslationState {currentTemp} = ts {currentTemp = currentTemp + 1}
 
 incLabel :: TranslationState -> TranslationState
-incLabel (TranslationState t lc cur rest) =
-  TranslationState
-    { currentTemp = t,
-      labelCount = lc + 1,
-      curBlock = cur,
-      restBlocks = rest
-    }
+incLabel ts@TranslationState {labelCount} = ts {labelCount = labelCount + 1}
 
 addInstsToBlock :: [MirInstr] -> TranslationState -> TranslationState
-addInstsToBlock insts (TranslationState t lc cur rest) =
-  TranslationState
-    { currentTemp = t,
-      labelCount = lc,
-      curBlock = cur {instrs = cur.instrs ++ insts},
-      restBlocks = rest
-    }
+addInstsToBlock insts ts@TranslationState {blocks = curBlock : restBlocks} =
+  ts {blocks = curBlock {instrs = curBlock.instrs ++ insts} : restBlocks}
+addInstsToBlock _ TranslationState {blocks = []} =
+  error "No current block to add instructions to"
 
 openBlock :: String -> TranslationState -> TranslationState
-openBlock label (TranslationState t lc cur rest) =
-  TranslationState
-    { currentTemp = t,
-      labelCount = lc,
-      curBlock = MirBasicBlock {label = label, instrs = []},
-      restBlocks = rest ++ [cur]
-    }
+openBlock label ts@TranslationState {blocks} =
+  ts {blocks = MirBasicBlock {label = label, instrs = []} : blocks}
 
-transExp :: Scope.Scope -> TypedExp -> State TranslationState [MirInstr]
-transExp scope Ast.Exp {annot, exp}
-  | Ast.IdifierExp {id} <- exp =
-      case Scope.lookup id scope of
-        Just Scope.Symbol {ty = Ast.FunTy {}} ->
+stackEnv :: Env.Env -> TranslationState -> TranslationState
+stackEnv env ts@TranslationState {envStack} =
+  ts {envStack = env : envStack}
+
+popEnv :: TranslationState -> TranslationState
+popEnv ts@TranslationState {envStack} =
+  case envStack of
+    [] -> error "No environment to pop"
+    (_ : rest) -> ts {envStack = rest}
+
+lookupId :: Ast.Id -> TranslationState -> Maybe Env.Symbol
+lookupId id ts@TranslationState {envStack} =
+  case envStack of
+    [] -> Nothing
+    (env : rest) -> Env.lookup id env <|> lookupId id (ts {envStack = rest})
+
+transExp :: TypedExp -> State TranslationState [MirInstr]
+transExp Ast.Exp {annot, exp}
+  | Ast.IdExp {id} <- exp = do
+      symb <- gets (lookupId id)
+      case symb of
+        Just Env.Symbol {ty = Ast.FunTy {}} ->
           error $ "Cannot use function " ++ id ++ " as variable"
-        Just Scope.Symbol {variant} ->
+        Just Env.Symbol {variant} ->
           case variant of
-            Scope.Local -> do
+            Env.Local -> do
               TranslationState {currentTemp = t} <- get
               return [Load t (Local id)]
-            Scope.Argument -> do
+            Env.Argument -> do
               TranslationState {currentTemp = t} <- get
               return [Load t (Arg id)]
             _ -> error $ "Unexpected symbol variant for variable: " ++ show variant
@@ -208,10 +207,10 @@ transExp scope Ast.Exp {annot, exp}
       TranslationState {currentTemp = t} <- get
       return [Assign t (ConstInt num)]
   | Ast.BinExp {left, op, right} <- exp = do
-      linst <- transExp scope left
+      linst <- transExp left
       TranslationState {currentTemp = lt} <- get
       modify incTemp
-      rinst <- transExp scope right
+      rinst <- transExp right
       TranslationState {currentTemp = rt} <- get
       modify incTemp
       TranslationState {currentTemp = t'} <- get
@@ -220,7 +219,7 @@ transExp scope Ast.Exp {annot, exp}
       argInsts <-
         foldM
           ( \acc arg -> do
-              insts <- transExp scope arg
+              insts <- transExp arg
               TranslationState {currentTemp = t} <- get
               modify incTemp
               return (acc ++ insts ++ [Param t])
@@ -235,25 +234,26 @@ transExp scope Ast.Exp {annot, exp}
           modify incTemp
           return (argInsts ++ [Call (Just t) id (length args)])
 
-transStmt :: Scope.Scope -> TypedStmt -> State TranslationState ()
-transStmt scope stmt
+transStmt :: TypedStmt -> State TranslationState ()
+transStmt stmt
   | Ast.ExpStmt {exp} <- stmt = do
-      insts <- transExp scope exp
+      insts <- transExp exp
       modify (addInstsToBlock insts)
   | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
-      insts <- transExp scope exp
+      insts <- transExp exp
       TranslationState {currentTemp = t} <- get
       modify incTemp
       modify (addInstsToBlock (insts ++ [Store (Local id) t]))
   | Ast.AssignStmt {id, exp} <- stmt = do
-      insts <- transExp scope exp
-      case Scope.lookup id scope of
-        Just Scope.Symbol {variant = Scope.Local} -> do
+      insts <- transExp exp
+      symb <- gets (lookupId id)
+      case symb of
+        Just Env.Symbol {variant = Env.Local} -> do
           TranslationState {currentTemp = t} <- get
           modify incTemp
           -- return $ insts ++ [Store (Local id) t]
           modify (addInstsToBlock (insts ++ [Store (Local id) t]))
-        Just Scope.Symbol {variant = Scope.Argument} -> do
+        Just Env.Symbol {variant = Env.Argument} -> do
           TranslationState {currentTemp = t} <- get
           modify incTemp
           -- return $ insts ++ [Store (Arg id) t]
@@ -262,7 +262,7 @@ transStmt scope stmt
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
-          insts <- transExp scope exp
+          insts <- transExp exp
           TranslationState {currentTemp = t} <- get
           modify incTemp
           -- return $ insts ++ [Return (Just t)]
@@ -274,7 +274,7 @@ transStmt scope stmt
       TranslationState {labelCount = l} <- get
       modify incLabel
       let thenLabel = "if_then_" ++ show l
-      condInstrs <- transExp scope cond
+      condInstrs <- transExp cond
 
       case elseBody of
         Just elseBody -> do
@@ -313,7 +313,7 @@ transStmt scope stmt
       modify incLabel
       let endLabel = "while_end_" ++ show l
       modify incLabel
-      condInstrs <- transExp scope cond
+      condInstrs <- transExp cond
       modify (openBlock condLabel)
       TranslationState {currentTemp = t} <- get
       modify (addInstsToBlock $ condInstrs ++ [CondJump t loopLabel endLabel])
@@ -324,21 +324,28 @@ transStmt scope stmt
 transBlock :: String -> TypedBlock -> State TranslationState ()
 transBlock label Ast.Block {annot = scope, stmts} = do
   modify (openBlock label)
-  foldM_ (\_ stmt -> transStmt scope stmt) () stmts
+  modify (stackEnv scope)
+  foldM_ (\_ stmt -> transStmt stmt) () (reverse stmts)
+  modify popEnv
 
 transFun :: TypedFun -> MirFunction
 transFun Ast.Fun {id, args, body} =
   let funName = id
       funArgs = map (\Ast.VarDef {id} -> id) args
       entryLabel = funName ++ "_entry"
-      initialState = TranslationState {currentTemp = 0, labelCount = 0, curBlock = MirBasicBlock {label = entryLabel, instrs = []}, restBlocks = []}
+      initialState =
+        TranslationState
+          { currentTemp = 0,
+            labelCount = 0,
+            blocks = [],
+            envStack = []
+          }
       (_, ts) = runState (transBlock entryLabel body) initialState
-      blocks = ts.restBlocks ++ [ts.curBlock]
    in MirFunction
         { irFunName = funName,
           irFunArgs = funArgs,
           irFunEntryLabel = entryLabel,
-          irFunBlocks = blocks
+          irFunBlocks = reverse ts.blocks
         }
 
 transProgram :: TypedProgram -> MirProgram

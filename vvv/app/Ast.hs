@@ -82,7 +82,7 @@ data ExpInner ea
   | NumberExp
       { num :: Int
       }
-  | IdifierExp
+  | IdExp
       { id :: Id
       }
   | Call

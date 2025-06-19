@@ -2,15 +2,15 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Scope
+module Env
   ( Symbol (..),
-    Scope (..),
+    Env (..),
     empty,
     insert,
     lookup,
     insertFunction,
     insertVar,
-    openScope,
+    openEnv,
     SymbolVariant (..),
     insertArg,
   )
@@ -18,6 +18,7 @@ where
 
 import Ast (Fun (..), Id, Ty (FunTy), VarDef (..))
 import Control.Applicative
+-- import Control.Lens
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
 
@@ -36,38 +37,32 @@ instance Show Symbol where
   show Symbol {ty, variant} =
     "Symbol { ty: " ++ show ty ++ ", variant: " ++ show variant ++ " }"
 
-data Scope = Scope
+data Env = Env
   { name :: String, -- Name of the scope (for debugging)
-    symbols :: Map.Map Id Symbol, -- Symbols in this scope
-    parent :: Maybe Scope -- Optional parent scope for nested scopes
+    symbols :: Map.Map Id Symbol -- Symbols in this scope
   }
   deriving (Eq)
 
-instance Show Scope where
+instance Show Env where
   show scope =
-    "Scope { name: "
+    "Env { name: "
       ++ scope.name
       ++ ", symbols: "
       ++ show (Map.toList scope.symbols)
-      ++ ", parent: "
-      ++ show (fmap (\p -> p.name) scope.parent)
       ++ " }"
 
-insert :: Id -> Symbol -> Scope -> Scope
+insert :: Id -> Symbol -> Env -> Env
 insert id symbol scope =
   scope {symbols = Map.insert id symbol scope.symbols}
 
-lookup :: Id -> Scope -> Maybe Symbol
-lookup id scope =
-  Map.lookup id scope.symbols <|> case scope.parent of
-    Just parentScope -> lookup id parentScope -- Search in parent scope if exists
-    Nothing -> Nothing -- No parent scope, return Nothing
+lookup :: Id -> Env -> Maybe Symbol
+lookup id scope = Map.lookup id scope.symbols
 
-openScope :: String -> Scope -> Scope
-openScope name scope = Scope {name, symbols = Map.empty, parent = Just scope}
+openEnv :: String -> Env
+openEnv name = Env {name, symbols = Map.empty}
 
 -- Function-specific operations
-insertFunction :: Fun a b -> Scope -> Scope
+insertFunction :: Fun a b -> Env -> Env
 insertFunction Fun {id, args, retty} =
   insert
     id
@@ -76,8 +71,8 @@ insertFunction Fun {id, args, retty} =
         ty = FunTy ((\VarDef {ty} -> ty) <$> args) retty
       }
 
-insertVar :: VarDef -> Scope -> Scope
+insertVar :: VarDef -> Env -> Env
 insertVar VarDef {id, ty} = insert id Symbol {variant = Local, ty}
 
-insertArg :: VarDef -> Scope -> Scope
+insertArg :: VarDef -> Env -> Env
 insertArg VarDef {id, ty} = insert id Symbol {variant = Argument, ty}
