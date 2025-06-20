@@ -2,6 +2,7 @@ void main() {
     print(fib(3));
 }
 
+// compute the nth fibonacci number
 int fib(int n) {
     int r = 1; 
     int i = 1;

@@ -24,8 +24,11 @@ import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 
+comment :: PC.Parser ()
+comment = PC.try (PC.string "//" *> PC.many (PC.satisfy (/= '\n')) *> PC.optional (PC.char '\n')) $> ()
+
 lex :: PC.Parser a -> PC.Parser a
-lex p = p <* PC.spaces
+lex p = p <* PC.spaces <* PC.optional comment
 
 keyword :: String -> PC.Parser String
 keyword kw = Parser.lex (PC.string kw)
