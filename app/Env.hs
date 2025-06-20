@@ -19,6 +19,8 @@ module Env
     emptyEnv,
     insertFun,
     emptyEnvStack,
+    numSymbolsInEnv,
+    toIdList,
   )
 where
 
@@ -122,3 +124,9 @@ insertFun Fun {id, args, retty} =
 
 emptyEnvStack :: String -> EnvStack
 emptyEnvStack name = EnvStack {stack = [emptyEnv name]}
+
+numSymbolsInEnv :: Env -> Int
+numSymbolsInEnv Env {symbols} = Map.size symbols
+
+toIdList :: Env -> [Id]
+toIdList Env {symbols} = Map.keys symbols

@@ -9,6 +9,7 @@ where
 
 import Ast qualified
 import Ast.Semant qualified
+import Ast.Types qualified
 import Control.Monad (foldM)
 import Control.Monad.State (State, gets, modify, runState)
 import Env qualified
@@ -197,10 +198,12 @@ transFun Ast.Fun {id, args, body} = do
   let entryLabel = "entry_" ++ show l
   _ <- transBlock entryLabel body
   blocks <- gets blocks
-  modify popEnv
   modify popBlocks
   let args' = map (\Ast.VarDef {id} -> id) args
-  return Mir.Types.Fun {id = id, args = args', entryLabel = entryLabel, blocks = blocks}
+  let Ast.Types.Block {annot} = body
+  -- remove parameters from locals
+  let locals = filter (`notElem` args') (Env.toIdList annot)
+  return Mir.Types.Fun {id = id, args = args', locals, entryLabel = entryLabel, blocks = blocks}
 
 transProgram :: Ast.Semant.TypedProgram -> Mir.Types.Program
 transProgram Ast.Program {annot, funcs} = Mir.Types.Program {funs}

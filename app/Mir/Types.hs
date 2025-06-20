@@ -9,6 +9,7 @@ module Mir.Types
     BasicBlock (..),
     Fun (..),
     Program (..),
+    varId,
   )
 where
 
@@ -26,6 +27,10 @@ data Var
   | Arg Ast.Id
   deriving (Eq)
 
+varId :: Var -> Ast.Id
+varId (Local id) = id
+varId (Arg id) = id
+
 instance Show Var where
   show (Local id) = "local " ++ id
   show (Arg id) = "arg " ++ id
@@ -33,14 +38,11 @@ instance Show Var where
 data Operand
   = ConstInt Int
   | Temp Temp
-  | Var Var
   deriving (Eq)
 
 instance Show Operand where
   show (ConstInt n) = "const " ++ show n
   show (Temp t) = "t" ++ show t
-  show (Var (Local id)) = "local " ++ id
-  show (Var (Arg id)) = "arg " ++ id
 
 data Inst
   = Assign Temp Operand
@@ -85,18 +87,22 @@ instance Show BasicBlock where
 data Fun = Fun
   { id :: Ast.Id,
     args :: [Ast.Id],
+    locals :: [Ast.Id],
     entryLabel :: Label,
     blocks :: [BasicBlock]
   }
   deriving (Eq)
 
 instance Show Fun where
-  show (Fun name args entryLabel blocks) =
+  show (Fun name args locals entryLabel blocks) =
     "Function: "
       ++ name
       ++ "\n"
       ++ "Args: "
       ++ unwords args
+      ++ "\n"
+      ++ "Locals: "
+      ++ unwords locals
       ++ "\n"
       ++ "Entry: "
       ++ entryLabel

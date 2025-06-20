@@ -5,6 +5,7 @@ import Ast.Semant qualified
 import Mir.Translate qualified
 import System.Environment qualified
 import Text.Parsec qualified
+import X86.Translate qualified
 
 main :: IO ()
 main = do
@@ -29,3 +30,7 @@ main = do
   let mirProgram = Mir.Translate.transProgram typedAst
   putStrLn "MIR Program:"
   print mirProgram
+
+  let x86Program = X86.Translate.translateProgram mirProgram
+  putStrLn "X86 Assembly Code:"
+  putStrLn x86Program

@@ -70,6 +70,9 @@ executable minic
                     Mir 
                     Mir.Translate
                     Mir.Types
+                    X86
+                    X86.Translate
+                    X86.Types
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -81,7 +84,7 @@ executable minic
                         , mtl >= 2.3
 
     -- Directories containing source files.
-    hs-source-dirs:   app app/Mir app/Ast
+    hs-source-dirs:   app app/Mir app/Ast app/X86
 
     -- Base language which the package is written in.
     default-language: GHC2021
