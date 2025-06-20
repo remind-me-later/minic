@@ -62,7 +62,14 @@ executable minic
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: Parser Ast TypeCheck Env Mir
+    other-modules:  Ast 
+                    Ast.Parse
+                    Ast.Semant 
+                    Ast.Types
+                    Env 
+                    Mir 
+                    Mir.Translate
+                    Mir.Types
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -74,7 +81,7 @@ executable minic
                         , mtl >= 2.3
 
     -- Directories containing source files.
-    hs-source-dirs:   app
+    hs-source-dirs:   app app/Mir app/Ast
 
     -- Base language which the package is written in.
     default-language: GHC2021

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module TypeCheck
+module Ast.Semant
   ( typeProgram,
     TypedProgram,
     TypedFun,
@@ -12,7 +12,7 @@ module TypeCheck
   )
 where
 
-import Ast
+import Ast.Types
   ( Block (..),
     Exp (..),
     ExpInner (..),
@@ -47,7 +47,7 @@ type TypedProgram = Program Ty Env.Env
 data TypingState = TypingState
   { envs :: Env.EnvStack,
     errors :: [String],
-    curFun :: Maybe Ast.Id
+    curFun :: Maybe Ast.Types.Id
   }
 
 addError :: String -> TypingState -> TypingState
@@ -68,7 +68,7 @@ popEnv ts@TypingState {envs} = ts {envs = Env.popEnv envs}
 peekEnv :: TypingState -> Env.Env
 peekEnv TypingState {envs} = Env.peekEnv envs
 
-lookup :: Ast.Id -> TypingState -> Maybe Env.Symbol
+lookup :: Ast.Types.Id -> TypingState -> Maybe Env.Symbol
 lookup id TypingState {envs} = Env.lookup id envs
 
 currentFun :: TypingState -> Maybe Env.Symbol
@@ -115,7 +115,7 @@ typeOp op Exp {annot = lty} Exp {annot = rty} =
 typeExp :: RawExp -> State TypingState TypedExp
 typeExp Exp {exp}
   | IdExp {id} <- exp = do
-      symb <- gets (TypeCheck.lookup id)
+      symb <- gets (Ast.Semant.lookup id)
       case symb of
         Just Env.Symbol {ty = FunTy {retty}} -> do
           modify (addError ("Cannot use function " ++ id ++ " as variable"))
@@ -132,36 +132,36 @@ typeExp Exp {exp}
       right <- typeExp right
       opTy <- typeOp op left right
       return Exp {annot = opTy, exp = BinExp {left, op, right}}
-  | Call {id, args} <- exp = do
-      symb <- gets (TypeCheck.lookup id)
-      args <- mapM typeExp args
+  | Call {id, args = callargs} <- exp = do
+      symb <- gets (Ast.Semant.lookup id)
+      callargs <- mapM typeExp callargs
 
       case symb of
-        Just Env.Symbol {ty = FunTy {argtys, retty}} -> do
-          let argtys' = map (\e -> e.annot) args
-          when (argtys' /= argtys) $
+        Just Env.Symbol {ty = FunTy {args = funargs, retty}} -> do
+          let argtys' = (\e -> e.annot) <$> callargs
+          when (argtys' /= funargs) $
             modify
               ( addError
                   ( "Argument type mismatch for function "
                       ++ id
                       ++ ": expected "
-                      ++ show (length argtys)
+                      ++ show (length funargs)
                       ++ " arguments of types "
-                      ++ show argtys
+                      ++ show funargs
                       ++ ", got "
-                      ++ show (length args)
+                      ++ show (length callargs)
                       ++ " arguments of types "
                       ++ show argtys'
                   )
               )
 
-          return Exp {annot = retty, exp = Call {id, args}}
+          return Exp {annot = retty, exp = Call {id, args = callargs}}
         Just Env.Symbol {ty} -> do
           modify (addError ("Cannot call variable: " ++ id ++ " of type: " ++ show ty))
-          return Exp {annot = VoidTy, exp = Call {id, args}}
+          return Exp {annot = VoidTy, exp = Call {id, args = callargs}}
         Nothing -> do
           modify (addError ("Undefined function: " ++ id))
-          return Exp {annot = VoidTy, exp = Call {id, args}}
+          return Exp {annot = VoidTy, exp = Call {id, args = callargs}}
 
 typeStmt :: RawStmt -> State TypingState TypedStmt
 typeStmt stmt
@@ -174,7 +174,7 @@ typeStmt stmt
       modify $ insertVar v
       return LetStmt {vardef = v, exp}
   | AssignStmt {id, exp} <- stmt = do
-      symb <- gets (TypeCheck.lookup id)
+      symb <- gets (Ast.Semant.lookup id)
       exp <- typeExp exp
 
       case symb of
@@ -250,7 +250,7 @@ typeFun Fun {id, args, retty, body = Block {stmts}} = do
 typeProgram' :: RawProgram -> State TypingState TypedProgram
 typeProgram' Program {funcs} = do
   funcs <- mapM typeFun funcs
-  symb <- gets (TypeCheck.lookup "main")
+  symb <- gets (Ast.Semant.lookup "main")
   case symb of
     Just Env.Symbol {ty = FunTy {retty}} ->
       when (retty /= VoidTy) (modify (addError "main function must return type Void"))

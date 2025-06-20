@@ -1,25 +1,9 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Parser (program) where
+module Ast.Parse (program) where
 
-import Ast qualified
-  ( Block (..),
-    Exp (..),
-    ExpInner (..),
-    Fun (..),
-    Id,
-    Operator (..),
-    Program (..),
-    RawBlock,
-    RawExp,
-    RawFun,
-    RawProgram,
-    RawStmt,
-    Stmt (..),
-    Ty (..),
-    VarDef (..),
-  )
+import Ast.Types qualified
 import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
@@ -31,7 +15,7 @@ lex :: PC.Parser a -> PC.Parser a
 lex p = p <* PC.spaces <* PC.optional comment
 
 keyword :: String -> PC.Parser String
-keyword kw = Parser.lex (PC.string kw)
+keyword kw = Ast.Parse.lex (PC.string kw)
 
 ifkw :: PC.Parser String
 ifkw = keyword "if"
@@ -46,7 +30,7 @@ returnkw :: PC.Parser String
 returnkw = keyword "return"
 
 symbol :: String -> PC.Parser String
-symbol sym = Parser.lex (PC.string sym)
+symbol sym = Ast.Parse.lex (PC.string sym)
 
 parens :: PC.Parser a -> PC.Parser a
 parens p = symbol "(" *> p <* symbol ")"
@@ -57,25 +41,25 @@ braces p = symbol "{" *> p <* symbol "}"
 commaSep :: PC.Parser a -> PC.Parser [a]
 commaSep p = PC.sepBy p (symbol ",")
 
-id :: PC.Parser Ast.Id
+id :: PC.Parser Ast.Types.Id
 id =
   let isFirstChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ "_"
       isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
-   in Parser.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
+   in Ast.Parse.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
 
-ty :: PC.Parser Ast.Ty
+ty :: PC.Parser Ast.Types.Ty
 ty =
-  let parseInt = (keyword "int" $> Ast.IntTy)
-      parseBool = (keyword "bool" $> Ast.BoolTy)
-      parseVoid = (keyword "void" $> Ast.VoidTy)
-   in Parser.lex (parseInt <|> parseBool <|> parseVoid)
+  let parseInt = (keyword "int" $> Ast.Types.IntTy)
+      parseBool = (keyword "bool" $> Ast.Types.BoolTy)
+      parseVoid = (keyword "void" $> Ast.Types.VoidTy)
+   in Ast.Parse.lex (parseInt <|> parseBool <|> parseVoid)
 
 num :: PC.Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
-   in read <$> Parser.lex (PC.many1 (PC.satisfy isDigit) >>= \digits -> return digits)
+   in read <$> Ast.Parse.lex (PC.many1 (PC.satisfy isDigit) >>= \digits -> return digits)
 
-exp :: PC.Parser Ast.RawExp
+exp :: PC.Parser Ast.Types.RawExp
 exp = eqexp
   where
     factor =
@@ -86,62 +70,62 @@ exp = eqexp
       where
         numexp = do
           num <- num
-          return Ast.Exp {annot = (), exp = Ast.NumberExp {num}}
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.NumberExp {num}}
         idexp = do
-          id <- Parser.id
-          return Ast.Exp {annot = (), exp = Ast.IdExp {id}}
-        parenexp = parens Parser.exp
+          id <- Ast.Parse.id
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.IdExp {id}}
+        parenexp = parens Ast.Parse.exp
         callexp = do
-          id <- Parser.id
-          args <- parens (commaSep Parser.exp)
-          return Ast.Exp {annot = (), exp = Ast.Call {id, args}}
+          id <- Ast.Parse.id
+          args <- parens (commaSep Ast.Parse.exp)
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.Call {id, args}}
 
     mulexp = do
       left <- factor
-      maybeOp <- optional (symbol "*" $> Ast.Mul)
+      maybeOp <- optional (symbol "*" $> Ast.Types.Mul)
       case maybeOp of
         Just op -> do
           right <- mulexp
-          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.BinExp {left, op, right}}
         Nothing -> return left
 
     addsubexp = do
       left <- mulexp
       maybeOp <-
         optional
-          ( symbol "+" $> Ast.Add
-              <|> symbol "-" $> Ast.Sub
+          ( symbol "+" $> Ast.Types.Add
+              <|> symbol "-" $> Ast.Types.Sub
           )
       case maybeOp of
         Just op -> do
           right <- addsubexp
-          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.BinExp {left, op, right}}
         Nothing -> return left
 
     eqexp = do
       left <- addsubexp
       maybeOp <-
         optional
-          ( symbol "==" $> Ast.Equal
-              <|> symbol "!=" $> Ast.NotEqual
-              <|> symbol "<" $> Ast.LessThan
-              <|> symbol ">" $> Ast.GreaterThan
-              <|> symbol "<=" $> Ast.LessThanOrEqual
-              <|> symbol ">=" $> Ast.GreaterThanOrEqual
+          ( symbol "==" $> Ast.Types.Equal
+              <|> symbol "!=" $> Ast.Types.NotEqual
+              <|> symbol "<" $> Ast.Types.LessThan
+              <|> symbol ">" $> Ast.Types.GreaterThan
+              <|> symbol "<=" $> Ast.Types.LessThanOrEqual
+              <|> symbol ">=" $> Ast.Types.GreaterThanOrEqual
           )
       case maybeOp of
         Just op -> do
           right <- eqexp
-          return Ast.Exp {annot = (), exp = Ast.BinExp {left, op, right}}
+          return Ast.Types.Exp {annot = (), exp = Ast.Types.BinExp {left, op, right}}
         Nothing -> return left
 
-vardef :: PC.Parser Ast.VarDef
+vardef :: PC.Parser Ast.Types.VarDef
 vardef = do
   ty <- ty
-  id <- Parser.id
-  return Ast.VarDef {id, ty}
+  id <- Ast.Parse.id
+  return Ast.Types.VarDef {id, ty}
 
-stmt :: PC.Parser Ast.RawStmt
+stmt :: PC.Parser Ast.Types.RawStmt
 stmt =
   PC.try letstmt
     <|> PC.try retstmt
@@ -153,57 +137,57 @@ stmt =
     letstmt = do
       vardef <- vardef
       _ <- symbol "="
-      exp <- Parser.exp
+      exp <- Ast.Parse.exp
       _ <- symbol ";"
-      return $ Ast.LetStmt {vardef, exp}
+      return $ Ast.Types.LetStmt {vardef, exp}
 
     assignstmt = do
-      id <- Parser.id
+      id <- Ast.Parse.id
       _ <- symbol "="
-      exp <- Parser.exp
+      exp <- Ast.Parse.exp
       _ <- symbol ";"
-      return $ Ast.AssignStmt {id, exp}
+      return $ Ast.Types.AssignStmt {id, exp}
 
     retstmt = do
       _ <- returnkw
-      retexp <- optional Parser.exp
+      retexp <- optional Ast.Parse.exp
       _ <- symbol ";"
-      return $ Ast.ReturnStmt {retexp}
+      return $ Ast.Types.ReturnStmt {retexp}
 
     expstmt = do
-      exp <- Parser.exp
+      exp <- Ast.Parse.exp
       _ <- symbol ";"
-      return Ast.ExpStmt {exp}
+      return Ast.Types.ExpStmt {exp}
 
     ifstmt = do
       _ <- ifkw
-      cond <- parens Parser.exp
+      cond <- parens Ast.Parse.exp
       ifBody <- block
       elseBody <- optional (elsekw *> block)
-      return $ Ast.IfStmt {cond, ifBody, elseBody}
+      return $ Ast.Types.IfStmt {cond, ifBody, elseBody}
 
     whilestmt = do
       _ <- whilekw
-      cond <- Parser.exp
+      cond <- Ast.Parse.exp
       body <- block
-      return Ast.WhileStmt {cond, body}
+      return Ast.Types.WhileStmt {cond, body}
 
-block :: PC.Parser Ast.RawBlock
+block :: PC.Parser Ast.Types.RawBlock
 block = do
   stmts <- braces (many stmt)
-  return $ Ast.Block {annot = (), stmts}
+  return $ Ast.Types.Block {annot = (), stmts}
 
-fun :: PC.Parser Ast.RawFun
+fun :: PC.Parser Ast.Types.RawFun
 fun = do
   retty <- ty
-  id <- Parser.id
+  id <- Ast.Parse.id
   args <- parens (commaSep vardef)
   body <- block
-  return Ast.Fun {id, args, retty, body}
+  return Ast.Types.Fun {id, args, retty, body}
 
-program :: PC.Parser Ast.RawProgram
+program :: PC.Parser Ast.Types.RawProgram
 program = do
   _ <- PC.spaces
   funcs <- many fun
   _ <- PC.eof
-  return Ast.Program {annot = (), funcs}
+  return Ast.Types.Program {annot = (), funcs}

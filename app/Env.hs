@@ -22,7 +22,7 @@ module Env
   )
 where
 
-import Ast (Fun (..), Id, Ty (FunTy), VarDef (..))
+import Ast.Types (Fun (..), Id, Ty (..), VarDef (..))
 import Control.Applicative
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
@@ -43,17 +43,17 @@ instance Show Symbol where
     "Symbol { ty: " ++ show ty ++ ", variant: " ++ show variant ++ " }"
 
 data Env = Env
-  { name :: String, -- Name of the scope (for debugging)
-    symbols :: Map.Map Id Symbol -- Symbols in this scope
+  { name :: String,
+    symbols :: Map.Map Id Symbol
   }
   deriving (Eq)
 
 instance Show Env where
-  show scope =
+  show env =
     "Env { name: "
-      ++ scope.name
+      ++ env.name
       ++ ", symbols: "
-      ++ show (Map.toList scope.symbols)
+      ++ show (Map.toList env.symbols)
       ++ " }"
 
 newtype EnvStack = EnvStack
@@ -96,7 +96,6 @@ peekEnv EnvStack {stack} =
     [] -> error "Cannot peek into an empty environment stack"
     env : _ -> env
 
--- Function-specific operations
 insertFunction :: Fun a b -> EnvStack -> EnvStack
 insertFunction Fun {id, args, retty} =
   insert
@@ -118,7 +117,7 @@ insertFun Fun {id, args, retty} =
     id
     Symbol
       { variant = Global,
-        ty = FunTy ((\VarDef {ty} -> ty) <$> args) retty
+        ty = FunTy {args = (\VarDef {ty} -> ty) <$> args, retty}
       }
 
 emptyEnvStack :: String -> EnvStack
