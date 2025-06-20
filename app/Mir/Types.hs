@@ -3,12 +3,12 @@
 module Mir.Types
   ( Temp,
     Label,
-    MirVar (..),
-    MirOperand (..),
-    MirInstr (..),
-    MirBasicBlock (..),
-    MirFunction (..),
-    MirProgram (..),
+    Var (..),
+    Operand (..),
+    Inst (..),
+    BasicBlock (..),
+    Fun (..),
+    Program (..),
   )
 where
 
@@ -21,32 +21,32 @@ type Temp = Int
 
 type Label = String
 
-data MirVar
+data Var
   = Local Ast.Id
   | Arg Ast.Id
   deriving (Eq)
 
-instance Show MirVar where
+instance Show Var where
   show (Local id) = "local " ++ id
   show (Arg id) = "arg " ++ id
 
-data MirOperand
+data Operand
   = ConstInt Int
   | Temp Temp
-  | Var MirVar
+  | Var Var
   deriving (Eq)
 
-instance Show MirOperand where
+instance Show Operand where
   show (ConstInt n) = "const " ++ show n
   show (Temp t) = "t" ++ show t
   show (Var (Local id)) = "local " ++ id
   show (Var (Arg id)) = "arg " ++ id
 
-data MirInstr
-  = Assign Temp MirOperand
+data Inst
+  = Assign Temp Operand
   | BinOp Temp Ast.Operator Temp Temp
-  | Load Temp MirVar
-  | Store MirVar Temp
+  | Load Temp Var
+  | Store Var Temp
   | Call (Maybe Temp) Ast.Id Int
   | Param Temp
   | Return (Maybe Temp)
@@ -54,7 +54,7 @@ data MirInstr
   | CondJump Temp Label Label
   deriving (Eq)
 
-instance Show MirInstr where
+instance Show Inst where
   show (Assign t op) = "t" ++ show t ++ " = " ++ show op
   show (BinOp t1 op t2 t3) = "t" ++ show t1 ++ " = " ++ "t" ++ show t2 ++ " " ++ show op ++ " " ++ "t" ++ show t3
   show (Load t v) = "t" ++ show t ++ " = " ++ show v
@@ -72,26 +72,26 @@ instance Show MirInstr where
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 -- For simplicity here, we'll just list instructions and assume the last one is control flow.
 -- A more rigorous CFG would explicitly link blocks.
-data MirBasicBlock = MirBasicBlock
+data BasicBlock = BasicBlock
   { blockLabel :: Label,
-    insts :: [MirInstr]
+    insts :: [Inst]
   }
   deriving (Eq)
 
-instance Show MirBasicBlock where
-  show (MirBasicBlock label instructions) =
+instance Show BasicBlock where
+  show (BasicBlock label instructions) =
     label ++ ":\n" ++ unlines (map (("  " ++) . show) instructions)
 
-data MirFunction = MirFunction
+data Fun = Fun
   { id :: Ast.Id,
     args :: [Ast.Id],
     entryLabel :: Label,
-    blocks :: [MirBasicBlock]
+    blocks :: [BasicBlock]
   }
   deriving (Eq)
 
-instance Show MirFunction where
-  show (MirFunction name args entryLabel blocks) =
+instance Show Fun where
+  show (Fun name args entryLabel blocks) =
     "Function: "
       ++ name
       ++ "\n"
@@ -104,10 +104,10 @@ instance Show MirFunction where
       ++ "Blocks:\n"
       ++ unlines (reverse $ map show blocks)
 
-newtype MirProgram = MirProgram
-  { funs :: [MirFunction]
+newtype Program = Program
+  { funs :: [Fun]
   }
   deriving (Eq)
 
-instance Show MirProgram where
-  show (MirProgram functions) = unlines (map show functions)
+instance Show Program where
+  show (Program functions) = unlines (map show functions)

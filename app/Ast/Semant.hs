@@ -33,6 +33,7 @@ import Control.Monad (when)
 import Control.Monad.State (State, gets, runState)
 import Control.Monad.State.Lazy (modify)
 import Env qualified
+import Prelude hiding (lookup)
 
 type TypedExp = Exp Ty
 
@@ -115,7 +116,7 @@ typeOp op Exp {annot = lty} Exp {annot = rty} =
 typeExp :: RawExp -> State TypingState TypedExp
 typeExp Exp {exp}
   | IdExp {id} <- exp = do
-      symb <- gets (Ast.Semant.lookup id)
+      symb <- gets (lookup id)
       case symb of
         Just Env.Symbol {ty = FunTy {retty}} -> do
           modify (addError ("Cannot use function " ++ id ++ " as variable"))
@@ -133,7 +134,7 @@ typeExp Exp {exp}
       opTy <- typeOp op left right
       return Exp {annot = opTy, exp = BinExp {left, op, right}}
   | Call {id, args = callargs} <- exp = do
-      symb <- gets (Ast.Semant.lookup id)
+      symb <- gets (lookup id)
       callargs <- mapM typeExp callargs
 
       case symb of
@@ -174,7 +175,7 @@ typeStmt stmt
       modify $ insertVar v
       return LetStmt {vardef = v, exp}
   | AssignStmt {id, exp} <- stmt = do
-      symb <- gets (Ast.Semant.lookup id)
+      symb <- gets (lookup id)
       exp <- typeExp exp
 
       case symb of
@@ -250,7 +251,7 @@ typeFun Fun {id, args, retty, body = Block {stmts}} = do
 typeProgram' :: RawProgram -> State TypingState TypedProgram
 typeProgram' Program {funcs} = do
   funcs <- mapM typeFun funcs
-  symb <- gets (Ast.Semant.lookup "main")
+  symb <- gets (lookup "main")
   case symb of
     Just Env.Symbol {ty = FunTy {retty}} ->
       when (retty /= VoidTy) (modify (addError "main function must return type Void"))

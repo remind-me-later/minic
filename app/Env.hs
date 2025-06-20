@@ -23,7 +23,7 @@ module Env
 where
 
 import Ast.Types (Fun (..), Id, Ty (..), VarDef (..))
-import Control.Applicative
+import Control.Applicative (Alternative (empty))
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
 

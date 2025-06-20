@@ -13,11 +13,12 @@ import Control.Monad (foldM)
 import Control.Monad.State (State, gets, modify, runState)
 import Env qualified
 import Mir.Types qualified
+import Prelude hiding (lookup)
 
 data TranslationState = TranslationState
   { tmpCount :: Mir.Types.Temp,
     labelCount :: Int,
-    blocks :: [Mir.Types.MirBasicBlock],
+    blocks :: [Mir.Types.BasicBlock],
     envStack :: Env.EnvStack
   }
 
@@ -33,7 +34,7 @@ incLabel ts@TranslationState {labelCount} = ts {labelCount = labelCount + 1}
 label :: TranslationState -> Int
 label TranslationState {labelCount} = labelCount
 
-addInstsToBlock :: [Mir.Types.MirInstr] -> TranslationState -> TranslationState
+addInstsToBlock :: [Mir.Types.Inst] -> TranslationState -> TranslationState
 addInstsToBlock insts ts@TranslationState {blocks = curBlock : restBlocks} =
   ts {blocks = curBlock {Mir.Types.insts = curBlock.insts ++ insts} : restBlocks}
 addInstsToBlock _ TranslationState {blocks = []} =
@@ -41,7 +42,7 @@ addInstsToBlock _ TranslationState {blocks = []} =
 
 pushBlock :: String -> TranslationState -> TranslationState
 pushBlock label ts@TranslationState {blocks} =
-  ts {blocks = Mir.Types.MirBasicBlock {blockLabel = label, insts = []} : blocks}
+  ts {blocks = Mir.Types.BasicBlock {blockLabel = label, insts = []} : blocks}
 
 popBlocks :: TranslationState -> TranslationState
 popBlocks ts = ts {blocks = []}
@@ -54,13 +55,13 @@ popEnv :: TranslationState -> TranslationState
 popEnv ts@TranslationState {envStack} =
   ts {envStack = Env.popEnv envStack}
 
-lookupId :: Ast.Id -> TranslationState -> Maybe Env.Symbol
-lookupId id TranslationState {envStack} = Env.lookup id envStack
+lookup :: Ast.Id -> TranslationState -> Maybe Env.Symbol
+lookup id TranslationState {envStack} = Env.lookup id envStack
 
-transExp :: Ast.Semant.TypedExp -> State TranslationState [Mir.Types.MirInstr]
+transExp :: Ast.Semant.TypedExp -> State TranslationState [Mir.Types.Inst]
 transExp Ast.Exp {annot, exp}
   | Ast.IdExp {id} <- exp = do
-      symb <- gets (lookupId id)
+      symb <- gets (lookup id)
       t <- gets tmp
       case symb of
         Just Env.Symbol {variant} ->
@@ -111,7 +112,7 @@ transStmt stmt
       modify (addInstsToBlock (insts ++ [Mir.Types.Store (Mir.Types.Local id) t]))
   | Ast.AssignStmt {id, exp} <- stmt = do
       insts <- transExp exp
-      symb <- gets (lookupId id)
+      symb <- gets (lookup id)
       case symb of
         Just Env.Symbol {variant = Env.Local} -> do
           t <- gets tmp
@@ -189,7 +190,7 @@ transBlock label Ast.Block {annot = scope, stmts} = do
   mapM_ transStmt stmts
   modify popEnv
 
-transFun :: Ast.Semant.TypedFun -> State TranslationState Mir.Types.MirFunction
+transFun :: Ast.Semant.TypedFun -> State TranslationState Mir.Types.Fun
 transFun Ast.Fun {id, args, body} = do
   l <- gets label
   modify incLabel
@@ -199,10 +200,10 @@ transFun Ast.Fun {id, args, body} = do
   modify popEnv
   modify popBlocks
   let args' = map (\Ast.VarDef {id} -> id) args
-  return Mir.Types.MirFunction {id = id, args = args', entryLabel = entryLabel, blocks = blocks}
+  return Mir.Types.Fun {id = id, args = args', entryLabel = entryLabel, blocks = blocks}
 
-transProgram :: Ast.Semant.TypedProgram -> Mir.Types.MirProgram
-transProgram Ast.Program {annot, funcs} = Mir.Types.MirProgram {funs}
+transProgram :: Ast.Semant.TypedProgram -> Mir.Types.Program
+transProgram Ast.Program {annot, funcs} = Mir.Types.Program {funs}
   where
     initialState =
       TranslationState
