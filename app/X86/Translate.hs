@@ -6,13 +6,14 @@
 module X86.Translate where
 
 import Ast.Types qualified
+import Control.Monad (forM_)
 import Control.Monad.State (State, get, modify, runState)
 import Data.Map (Map, empty, fromList, lookup)
 import Mir.Types qualified
 import X86.Types qualified as X86
 
 data TranslationState = TranslationState
-  { stackFrameVars :: Map Ast.Types.Id Int,
+  { varOffsets :: Map Ast.Types.Id Int,
     assemblyCode :: [X86.Inst],
     lastJmpCond :: Maybe X86.JmpCond,
     fileHeader :: String
@@ -39,8 +40,8 @@ emitAsmInst code = do
 -- All variables are QWORDS and aligned
 getVarOffset :: Ast.Types.Id -> State TranslationState (Maybe Int)
 getVarOffset varId = do
-  TranslationState {stackFrameVars} <- get
-  return $ Data.Map.lookup varId stackFrameVars
+  TranslationState {varOffsets} <- get
+  return $ Data.Map.lookup varId varOffsets
 
 loadVarToEax :: Ast.Types.Id -> State TranslationState ()
 loadVarToEax varId = do
@@ -131,8 +132,9 @@ translateInst inst
   | Mir.Types.Param _ <- inst = do
       -- pushTempToStack
       return ()
-  | Mir.Types.Return _ <- inst =
-      emitAsmInst X86.Ret
+  | Mir.Types.Return _ <- inst = do
+      mapM_ emitAsmInst X86.functionEpilogue
+  -- emitAsmInst X86.Ret
   | Mir.Types.Jump label <- inst = do
       emitAsmInst $ X86.Jmp {X86.label = label}
   | Mir.Types.CondJump _ label1 label2 <- inst = do
@@ -162,10 +164,10 @@ translateFun (Mir.Types.Fun id args locals _ basicBlocks) = do
 
   -- local variables have negative offsets from rbp
   -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
-  let varOffsets = zip locals (iterate (\x -> x - 8) (-8))
+  let varOffsetList = zip locals (iterate (\x -> x - 8) (-8))
 
-  let stackFrameVars = Data.Map.fromList $ argOffsets ++ varOffsets
-  modify (\s -> s {stackFrameVars})
+  let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
+  modify (\s -> s {varOffsets})
 
   mapM_ translateBasicBlock (reverse basicBlocks)
 
@@ -177,9 +179,9 @@ tranlateMainFun (Mir.Types.Fun _ _ locals _ basicBlocks) = do
   mapM_ emitAsmInst (X86.mainFunctionPrologue frameSize)
 
   -- here 0 is the first local variable, -8 is the second, etc.
-  let varOffsets = zip locals (iterate (\x -> x - 8) 0)
-  let stackFrameVars = Data.Map.fromList varOffsets
-  modify (\s -> s {stackFrameVars})
+  let varOffsetList = zip locals (iterate (\x -> x - 8) 0)
+  let varOffsets = Data.Map.fromList varOffsetList
+  modify (\s -> s {varOffsets})
 
   mapM_ translateBasicBlock (reverse basicBlocks)
 
@@ -196,9 +198,7 @@ translateProgram' (Mir.Types.Program funs externFuns mainFun) = do
     )
 
   -- translate main function
-  case mainFun of
-    Just fun -> tranlateMainFun fun
-    Nothing -> return ()
+  forM_ mainFun tranlateMainFun
   -- translate functions
   mapM_ translateFun funs
 
@@ -207,7 +207,7 @@ translateProgram program = show finalState
   where
     initialState =
       TranslationState
-        { stackFrameVars = empty,
+        { varOffsets = empty,
           assemblyCode = [],
           lastJmpCond = Nothing,
           fileHeader = ""

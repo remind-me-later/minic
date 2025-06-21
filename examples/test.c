@@ -1,7 +1,7 @@
 extern void print_char(int c);
 
 void main() {
-    print_char(72);
+    print_char(fib(4)*4);
 }
 
 int fib(int n) {
