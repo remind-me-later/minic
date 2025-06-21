@@ -21,10 +21,11 @@ module Env
     emptyEnvStack,
     numSymbolsInEnv,
     toIdList,
+    insertExternFunction,
   )
 where
 
-import Ast.Types (Fun (..), Id, Ty (..), VarDef (..))
+import Ast.Types (ExternFun (..), Fun (..), Id, Ty (..), VarDef (..))
 import Control.Applicative (Alternative (empty))
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
@@ -104,7 +105,16 @@ insertFunction Fun {id, args, retty} =
     id
     Symbol
       { variant = Global,
-        ty = FunTy ((.ty) <$> args) retty
+        ty = FunTy {args = (.ty) <$> args, retty = retty}
+      }
+
+insertExternFunction :: ExternFun -> EnvStack -> EnvStack
+insertExternFunction ExternFun {id, args, retty} =
+  insert
+    id
+    Symbol
+      { variant = Global,
+        ty = FunTy {args, retty}
       }
 
 insertVar :: VarDef -> EnvStack -> EnvStack

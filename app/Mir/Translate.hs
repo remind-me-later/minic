@@ -59,7 +59,7 @@ popEnv ts@TranslationState {envStack} =
 lookup :: Ast.Id -> TranslationState -> Maybe Env.Symbol
 lookup id TranslationState {envStack} = Env.lookup id envStack
 
-transExp :: Ast.Semant.TypedExp -> State TranslationState [Mir.Types.Inst]
+transExp :: Ast.Semant.TypedExp -> State TranslationState ()
 transExp Ast.Exp {annot, exp}
   | Ast.IdExp {id} <- exp = do
       symb <- gets (lookup id)
@@ -67,77 +67,76 @@ transExp Ast.Exp {annot, exp}
       case symb of
         Just Env.Symbol {variant} ->
           case variant of
-            Env.Local -> return [Mir.Types.Load t (Mir.Types.Local id)]
-            Env.Argument -> return [Mir.Types.Load t (Mir.Types.Arg id)]
+            Env.Local -> do
+              modify $ addInstsToBlock [Mir.Types.Load t (Mir.Types.Local id)]
+            Env.Argument ->
+              modify $ addInstsToBlock [Mir.Types.Load t (Mir.Types.Arg id)]
             _ -> error $ "Unexpected symbol variant for variable: " ++ show variant
         Nothing -> error $ "Undefined variable: " ++ id
   | Ast.NumberExp {num} <- exp = do
       t <- gets tmp
-      return [Mir.Types.Assign t (Mir.Types.ConstInt num)]
+      modify $ addInstsToBlock [Mir.Types.Assign t (Mir.Types.ConstInt num)]
   | Ast.BinExp {left, op, right} <- exp = do
-      linst <- transExp left
+      transExp left
       lt <- gets tmp
       modify incTmp
-      rinst <- transExp right
+      transExp right
       rt <- gets tmp
       modify incTmp
       tout <- gets tmp
-      return (linst ++ rinst ++ [Mir.Types.BinOp tout op lt rt])
+      modify $ addInstsToBlock [Mir.Types.BinOp tout op lt rt]
   | Ast.Call {id, args} <- exp = do
-      argInsts <-
-        foldM
-          ( \acc arg -> do
-              insts <- transExp arg
-              t <- gets tmp
-              modify incTmp
-              return (acc ++ insts ++ [Mir.Types.Param t])
-          )
-          []
-          args
+      mapM_
+        ( \arg -> do
+            transExp arg
+            t <- gets tmp
+            modify incTmp
+            modify $ addInstsToBlock [Mir.Types.Param t]
+        )
+        args
       case annot of
         Ast.VoidTy -> do
-          return (argInsts ++ [Mir.Types.Call Nothing id (length args)])
+          modify $ addInstsToBlock [Mir.Types.Call Nothing id (length args)]
         _ -> do
           t <- gets tmp
-          return (argInsts ++ [Mir.Types.Call (Just t) id (length args)])
+          modify $ addInstsToBlock [Mir.Types.Call (Just t) id (length args)]
 
 transStmt :: Ast.Semant.TypedStmt -> State TranslationState ()
 transStmt stmt
   | Ast.ExpStmt {exp} <- stmt = do
-      insts <- transExp exp
-      modify (addInstsToBlock insts)
+      transExp exp
   | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
-      insts <- transExp exp
+      transExp exp
       t <- gets tmp
       modify incTmp
-      modify (addInstsToBlock (insts ++ [Mir.Types.Store (Mir.Types.Local id) t]))
+      modify (addInstsToBlock [Mir.Types.Store (Mir.Types.Local id) t])
   | Ast.AssignStmt {id, exp} <- stmt = do
-      insts <- transExp exp
+      transExp exp
       symb <- gets (lookup id)
       case symb of
         Just Env.Symbol {variant = Env.Local} -> do
           t <- gets tmp
           modify incTmp
-          modify (addInstsToBlock (insts ++ [Mir.Types.Store (Mir.Types.Local id) t]))
+          modify (addInstsToBlock [Mir.Types.Store (Mir.Types.Local id) t])
         Just Env.Symbol {variant = Env.Argument} -> do
           t <- gets tmp
           modify incTmp
-          modify (addInstsToBlock (insts ++ [Mir.Types.Store (Mir.Types.Arg id) t]))
+          modify (addInstsToBlock [Mir.Types.Store (Mir.Types.Arg id) t])
         _ -> error $ "Undefined variable: " ++ id
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
-          insts <- transExp exp
+          transExp exp
           t <- gets tmp
           modify incTmp
-          modify (addInstsToBlock (insts ++ [Mir.Types.Return (Just t)]))
+          modify (addInstsToBlock [Mir.Types.Return (Just t)])
         Nothing -> do
           modify (addInstsToBlock [Mir.Types.Return Nothing])
   | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
       l <- gets label
       modify incLabel
       let thenLabel = "if_then_" ++ show l
-      condInstrs <- transExp cond
+      transExp cond
 
       case elseBody of
         Just elseBody -> do
@@ -149,7 +148,7 @@ transStmt stmt
           let endLabel = "if_end_" ++ show l
 
           t <- gets tmp
-          modify (addInstsToBlock $ condInstrs ++ [Mir.Types.CondJump t thenLabel elseLabel])
+          modify (addInstsToBlock [Mir.Types.CondJump t thenLabel elseLabel])
           _ <- transBlock thenLabel ifBody
           modify (addInstsToBlock [Mir.Types.Jump endLabel])
           _ <- transBlock elseLabel elseBody
@@ -161,7 +160,7 @@ transStmt stmt
           let endLabel = "if_end_" ++ show l
 
           t <- gets tmp
-          modify (addInstsToBlock $ condInstrs ++ [Mir.Types.CondJump t thenLabel endLabel])
+          modify (addInstsToBlock [Mir.Types.CondJump t thenLabel endLabel])
           _ <- transBlock thenLabel ifBody
           modify (addInstsToBlock [Mir.Types.Jump endLabel])
           modify (pushBlock endLabel)
@@ -176,12 +175,15 @@ transStmt stmt
       modify incLabel
       let endLabel = "while_end_" ++ show l
       modify incLabel
-      condInstrs <- transExp cond
+
       modify (pushBlock condLabel)
+      transExp cond
       t <- gets tmp
-      modify (addInstsToBlock $ condInstrs ++ [Mir.Types.CondJump t loopLabel endLabel])
+      modify (addInstsToBlock [Mir.Types.CondJump t loopLabel endLabel])
+
       _ <- transBlock loopLabel body
       modify (addInstsToBlock [Mir.Types.Jump condLabel])
+
       modify (pushBlock endLabel)
 
 transBlock :: String -> Ast.Semant.TypedBlock -> State TranslationState ()
@@ -205,24 +207,34 @@ transFun Ast.Fun {id, args, body} = do
   let locals = filter (`notElem` args') (Env.toIdList annot)
   return Mir.Types.Fun {id = id, args = args', locals, entryLabel = entryLabel, blocks = blocks}
 
+transExternFun :: Ast.Types.ExternFun -> Mir.Types.ExternFun
+transExternFun Ast.ExternFun {id} = Mir.Types.ExternFun {externId = id}
+
 transProgram :: Ast.Semant.TypedProgram -> Mir.Types.Program
-transProgram Ast.Program {annot, funcs} = Mir.Types.Program {funs}
-  where
-    initialState =
-      TranslationState
-        { tmpCount = 0,
-          labelCount = 0,
-          blocks = [],
-          envStack = Env.pushEnv annot (Env.emptyEnvStack "global")
-        }
-    (funs, _) =
-      runState
-        ( foldM
-            ( \acc fun -> do
-                mirFun <- transFun fun
-                return (acc ++ [mirFun])
-            )
-            []
-            funcs
-        )
-        initialState
+transProgram Ast.Program {annot, funcs, externFuns, mainFun} = do
+  let externFuns' = transExternFun <$> externFuns
+  let initialState =
+        TranslationState
+          { tmpCount = 0,
+            labelCount = 0,
+            blocks = [],
+            envStack = Env.pushEnv annot (Env.emptyEnvStack "global")
+          }
+
+  let (funs, st) =
+        runState
+          ( foldM
+              ( \acc fun -> do
+                  mirFun <- transFun fun
+                  return (acc ++ [mirFun])
+              )
+              []
+              funcs
+          )
+          initialState
+
+  let mainFun' = case mainFun of
+        Just fun -> Just (runState (transFun fun) st)
+        Nothing -> Nothing
+
+  Mir.Types.Program {funs, externFuns = externFuns', mainFun = fst <$> mainFun'}

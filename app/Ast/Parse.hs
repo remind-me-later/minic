@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Ast.Parse (program) where
@@ -185,9 +186,37 @@ fun = do
   body <- block
   return Ast.Types.Fun {id, args, retty, body}
 
+externfun :: PC.Parser Ast.Types.RawExternFun
+externfun = do
+  _ <- keyword "extern"
+  retty <- ty
+  id <- Ast.Parse.id
+  args <- parens (commaSep vardef)
+  _ <- symbol ";"
+  return
+    Ast.Types.ExternFun
+      { id,
+        args = (.ty) <$> args,
+        retty
+      }
+
 program :: PC.Parser Ast.Types.RawProgram
 program = do
   _ <- PC.spaces
-  funcs <- many fun
+  defs <- many (PC.try (Left <$> fun) <|> (Right <$> externfun))
   _ <- PC.eof
-  return Ast.Types.Program {annot = (), funcs}
+
+  let initialProgram = Ast.Types.Program {annot = (), funcs = [], externFuns = [], mainFun = Nothing}
+  let programResult =
+        foldl
+          ( \acc f -> case f of
+              Left fun ->
+                case fun.id of
+                  "main" -> acc {Ast.Types.mainFun = Just fun}
+                  _ -> acc {Ast.Types.funcs = Ast.Types.funcs acc ++ [fun]}
+              Right externFun -> acc {Ast.Types.externFuns = Ast.Types.externFuns acc ++ [externFun]}
+          )
+          initialProgram
+          defs
+
+  return programResult

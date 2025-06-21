@@ -10,27 +10,52 @@ import X86.Translate qualified
 main :: IO ()
 main = do
   args <- System.Environment.getArgs
-  let fileName = head args
-  contents <- readFile fileName
+  case args of
+    ["--ast", fileName] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
 
-  ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
-    Right ast -> return ast
-    Left err -> error $ "Parsing failed: " ++ show err
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
 
-  -- putStrLn "AST:"
-  -- print ast
+      print typedAst
+    ["--semant", fileName] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
 
-  typedAst <- case Ast.Semant.typeProgram ast of
-    Right table -> return table
-    Left errs -> error $ "Type checking failed: " ++ show errs
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
 
-  -- putStrLn "Typed AST:"
-  -- print typedAst
+      print typedAst
+    ["--mir", fileName] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
 
-  let mirProgram = Mir.Translate.transProgram typedAst
-  putStrLn "MIR Program:"
-  print mirProgram
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
 
-  let x86Program = X86.Translate.translateProgram mirProgram
-  putStrLn "X86 Assembly Code:"
-  putStrLn x86Program
+      let mirProgram = Mir.Translate.transProgram typedAst
+      print mirProgram
+    ["--x86", fileName] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
+
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
+
+      let mirProgram = Mir.Translate.transProgram typedAst
+      let x86Program = X86.Translate.translateProgram mirProgram
+      putStrLn x86Program
+    _ -> putStrLn "Usage: compiler --mir <file> | --x86 <file> | --ast <file> | --semant <file>"

@@ -10,6 +10,7 @@ module Mir.Types
     Fun (..),
     Program (..),
     varId,
+    ExternFun (..),
   )
 where
 
@@ -110,10 +111,28 @@ instance Show Fun where
       ++ "Blocks:\n"
       ++ unlines (reverse $ show <$> blocks)
 
-newtype Program = Program
-  { funs :: [Fun]
+newtype ExternFun = ExternFun
+  { externId :: Ast.Id
+  }
+  deriving (Eq)
+
+instance Show ExternFun where
+  show (ExternFun id) = "Extern Function: " ++ id
+
+data Program = Program
+  { funs :: [Fun],
+    externFuns :: [ExternFun],
+    mainFun :: Maybe Fun
   }
   deriving (Eq)
 
 instance Show Program where
-  show (Program functions) = unlines $ show <$> functions
+  show (Program functions externFuns mainFun) =
+    "Program:\n"
+      ++ "Extern Functions:\n"
+      ++ unlines (show <$> externFuns)
+      ++ "Functions:\n"
+      ++ unlines (show <$> functions)
+      ++ case mainFun of
+        Just main -> "Main Function:\n" ++ show main
+        Nothing -> "No Main Function"

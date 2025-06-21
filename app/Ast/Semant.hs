@@ -16,6 +16,7 @@ import Ast.Types
   ( Block (..),
     Exp (..),
     ExpInner (..),
+    ExternFun (..),
     Fun (..),
     Id,
     Operator (..),
@@ -248,23 +249,35 @@ typeFun Fun {id, args, retty, body = Block {stmts}} = do
   modify popEnv
   return Fun {id, args, retty, body = Block {annot = env, stmts = annotatedStmts}}
 
+typeExternFun :: ExternFun -> State TypingState ExternFun
+typeExternFun = return
+
 typeProgram' :: RawProgram -> State TypingState TypedProgram
-typeProgram' Program {funcs} = do
+typeProgram' Program {funcs, externFuns, mainFun} = do
   funcs <- mapM typeFun funcs
-  symb <- gets (lookup "main")
-  case symb of
-    Just Env.Symbol {ty = FunTy {retty}} ->
-      when (retty /= VoidTy) (modify (addError "main function must return type Void"))
-    Just _ -> modify (addError "main must be a function")
-    Nothing -> return ()
+  externFuns <- mapM typeExternFun externFuns
+  mainFun <- case mainFun of
+    Just f -> do
+      typedMainFun <- typeFun f
+      return (Just typedMainFun)
+    Nothing -> do
+      return Nothing
 
   globalScope <- gets peekEnv
 
-  return Program {annot = globalScope, funcs}
+  return Program {annot = globalScope, funcs, externFuns, mainFun}
 
 buildGlobalEnv :: RawProgram -> Env.EnvStack
-buildGlobalEnv Program {funcs} =
-  foldl (flip Env.insertFunction) (Env.emptyEnvStack "global") funcs
+buildGlobalEnv Program {funcs, externFuns} =
+  insertFunctions funcs $
+    insertExternFunctions externFuns $
+      Env.emptyEnvStack "global"
+  where
+    insertFunctions [] env = env
+    insertFunctions (f : fs) env = insertFunctions fs (Env.insertFun f env)
+
+    insertExternFunctions [] env = env
+    insertExternFunctions (ef : efs) env = insertExternFunctions efs (Env.insertExternFunction ef env)
 
 typeProgram :: RawProgram -> Either [String] TypedProgram
 typeProgram program =

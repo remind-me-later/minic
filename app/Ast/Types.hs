@@ -117,9 +117,18 @@ data Fun a ba = Fun
   }
   deriving (Show, Eq)
 
+data ExternFun = ExternFun
+  { id :: Id,
+    args :: [Ty],
+    retty :: Ty
+  }
+  deriving (Show, Eq)
+
 data Program a ba = Program
   { annot :: ba,
-    funcs :: [Fun a ba]
+    funcs :: [Fun a ba],
+    externFuns :: [ExternFun],
+    mainFun :: Maybe (Fun a ba)
   }
   deriving (Show, Eq)
 
@@ -130,5 +139,7 @@ type RawStmt = Stmt () ()
 type RawBlock = Block () ()
 
 type RawFun = Fun () ()
+
+type RawExternFun = ExternFun
 
 type RawProgram = Program () ()
