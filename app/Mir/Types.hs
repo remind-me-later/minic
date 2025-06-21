@@ -82,7 +82,7 @@ data BasicBlock = BasicBlock
 
 instance Show BasicBlock where
   show (BasicBlock label instructions) =
-    label ++ ":\n" ++ unlines (map (("  " ++) . show) instructions)
+    label ++ ":\n" ++ unlines (("  " ++) . show <$> instructions)
 
 data Fun = Fun
   { id :: Ast.Id,
@@ -108,7 +108,7 @@ instance Show Fun where
       ++ entryLabel
       ++ "\n"
       ++ "Blocks:\n"
-      ++ unlines (reverse $ map show blocks)
+      ++ unlines (reverse $ show <$> blocks)
 
 newtype Program = Program
   { funs :: [Fun]
@@ -116,4 +116,4 @@ newtype Program = Program
   deriving (Eq)
 
 instance Show Program where
-  show (Program functions) = unlines (map show functions)
+  show (Program functions) = unlines $ show <$> functions

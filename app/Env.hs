@@ -104,7 +104,7 @@ insertFunction Fun {id, args, retty} =
     id
     Symbol
       { variant = Global,
-        ty = FunTy ((\VarDef {ty} -> ty) <$> args) retty
+        ty = FunTy ((.ty) <$> args) retty
       }
 
 insertVar :: VarDef -> EnvStack -> EnvStack
@@ -119,7 +119,7 @@ insertFun Fun {id, args, retty} =
     id
     Symbol
       { variant = Global,
-        ty = FunTy {args = (\VarDef {ty} -> ty) <$> args, retty}
+        ty = FunTy {args = (.ty) <$> args, retty}
       }
 
 emptyEnvStack :: String -> EnvStack

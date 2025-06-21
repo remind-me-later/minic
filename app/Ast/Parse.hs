@@ -57,7 +57,7 @@ ty =
 num :: PC.Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
-   in read <$> Ast.Parse.lex (PC.many1 (PC.satisfy isDigit) >>= \digits -> return digits)
+   in read <$> Ast.Parse.lex (PC.many1 (PC.satisfy isDigit))
 
 exp :: PC.Parser Ast.Types.RawExp
 exp = eqexp

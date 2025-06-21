@@ -199,7 +199,7 @@ transFun Ast.Fun {id, args, body} = do
   _ <- transBlock entryLabel body
   blocks <- gets blocks
   modify popBlocks
-  let args' = map (\Ast.VarDef {id} -> id) args
+  let args' = (.id) <$> args
   let Ast.Types.Block {annot} = body
   -- remove parameters from locals
   let locals = filter (`notElem` args') (Env.toIdList annot)

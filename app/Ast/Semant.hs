@@ -139,7 +139,7 @@ typeExp Exp {exp}
 
       case symb of
         Just Env.Symbol {ty = FunTy {args = funargs, retty}} -> do
-          let argtys' = (\e -> e.annot) <$> callargs
+          let argtys' = (.annot) <$> callargs
           when (argtys' /= funargs) $
             modify
               ( addError
