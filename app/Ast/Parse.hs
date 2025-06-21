@@ -107,12 +107,12 @@ exp = eqexp
       left <- addsubexp
       maybeOp <-
         optional
-          ( symbol "==" $> Ast.Types.Equal
-              <|> symbol "!=" $> Ast.Types.NotEqual
-              <|> symbol "<" $> Ast.Types.LessThan
+          ( PC.try (symbol "==" $> Ast.Types.Equal)
+              <|> PC.try (symbol "!=" $> Ast.Types.NotEqual)
+              <|> PC.try (symbol "<=" $> Ast.Types.LessThanOrEqual)
+              <|> PC.try (symbol ">=" $> Ast.Types.GreaterThanOrEqual)
+              <|> PC.try (symbol "<" $> Ast.Types.LessThan)
               <|> symbol ">" $> Ast.Types.GreaterThan
-              <|> symbol "<=" $> Ast.Types.LessThanOrEqual
-              <|> symbol ">=" $> Ast.Types.GreaterThanOrEqual
           )
       case maybeOp of
         Just op -> do

@@ -9,46 +9,31 @@ import Ast.Types qualified
 import Control.Monad.State (State, get, modify, runState)
 import Data.Map (Map, empty, fromList, lookup)
 import Mir.Types qualified
-
-data IfCond
-  = NZ
-  | Z
-  | EQ
-  | LT
-  | LE
-  | GT
-  | GE
-  deriving (Show, Eq)
-
-ifCondToJmpInstruction :: IfCond -> String
-ifCondToJmpInstruction X86.Translate.NZ = "jnz"
-ifCondToJmpInstruction X86.Translate.Z = "jz"
-ifCondToJmpInstruction X86.Translate.EQ = "je"
-ifCondToJmpInstruction X86.Translate.LT = "jl"
-ifCondToJmpInstruction X86.Translate.LE = "jle"
-ifCondToJmpInstruction X86.Translate.GT = "jg"
-ifCondToJmpInstruction X86.Translate.GE = "jge"
+import X86.Types qualified as X86
 
 data TranslationState = TranslationState
   { stackFrameVars :: Map Ast.Types.Id Int,
-    stackFrameSize :: Int,
-    assemblyCode :: String,
-    lastFlagChangingOp :: Maybe IfCond
+    assemblyCode :: [X86.Inst],
+    lastJmpCond :: Maybe X86.JmpCond,
+    fileHeader :: String
   }
 
-changeFlagOp :: IfCond -> State TranslationState ()
-changeFlagOp cond = modify (\s -> s {lastFlagChangingOp = Just cond})
+instance Show TranslationState where
+  show TranslationState {assemblyCode, fileHeader} =
+    fileHeader ++ "\n" ++ unlines (show <$> assemblyCode)
 
-flagOp :: State TranslationState (Maybe IfCond)
+changeFlagOp :: X86.JmpCond -> State TranslationState ()
+changeFlagOp cond = modify (\s -> s {lastJmpCond = Just cond})
+
+flagOp :: State TranslationState (Maybe X86.JmpCond)
 flagOp = do
-  TranslationState {lastFlagChangingOp} <- get
-  return lastFlagChangingOp
+  TranslationState {lastJmpCond} <- get
+  return lastJmpCond
 
-appendAssemblyCode :: String -> State TranslationState ()
-appendAssemblyCode code = do
+emitAsmInst :: X86.Inst -> State TranslationState ()
+emitAsmInst code = do
   TranslationState {assemblyCode} <- get
-  let newCode = assemblyCode ++ code
-  modify (\s -> s {assemblyCode = newCode})
+  modify (\s -> s {assemblyCode = assemblyCode ++ [code]})
 
 -- Offset from rbp (base pointer) for local variables
 -- All variables are QWORDS and aligned
@@ -62,27 +47,31 @@ loadVarToEax varId = do
   maybeOffset <- getVarOffset varId
   case maybeOffset of
     Just offset ->
-      -- Load the variable into rax register, assuming rax is used for variable access,
-      -- and variable is stored at offset from rbp
-      appendAssemblyCode $ "mov rax, [rbp - " ++ show offset ++ "]\n"
+      emitAsmInst $
+        X86.Mov
+          { X86.src = X86.Mem X86.Rbp offset,
+            X86.dst = X86.Reg X86.Rax
+          }
     Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
 
 storeEaxToVar :: Ast.Types.Id -> State TranslationState ()
 storeEaxToVar varId = do
   maybeOffset <- getVarOffset varId
   case maybeOffset of
-    Just offset -> appendAssemblyCode $ "mov [rbp - " ++ show offset ++ "], rax\n"
+    Just offset ->
+      emitAsmInst $
+        X86.Mov
+          { X86.src = X86.Reg X86.Rax,
+            X86.dst = X86.Mem X86.Rbp offset
+          }
     Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
 
 -- All temps pass by rax register
 pushTempToStack :: State TranslationState ()
-pushTempToStack = appendAssemblyCode "push rax\n"
+pushTempToStack = emitAsmInst X86.Push {X86.op = X86.Reg X86.Rax}
 
 popTempFromStack :: State TranslationState ()
-popTempFromStack = appendAssemblyCode "pop rax\n"
-
-constToEax :: Int -> State TranslationState ()
-constToEax value = appendAssemblyCode $ "mov rax, " ++ show value ++ "\n"
+popTempFromStack = emitAsmInst X86.Pop {X86.op = X86.Reg X86.Rax}
 
 translateInst :: Mir.Types.Inst -> State TranslationState ()
 translateInst inst
@@ -90,47 +79,43 @@ translateInst inst
       -- Translate assignment instruction
       case operand of
         Mir.Types.ConstInt value -> do
-          constToEax value
-          pushTempToStack
+          emitAsmInst $ X86.Push {X86.op = X86.Imm value}
           return ()
         Mir.Types.Temp _ -> do
           -- Assuming tempOperand is already in rax
           pushTempToStack
           return ()
   | Mir.Types.BinOp _ op _ _ <- inst = do
-      -- Translate binary operation
-      popTempFromStack -- Pop the second operand into rax
-      -- move the second operand to rbx
-      appendAssemblyCode "mov rbx, rax\n"
-      popTempFromStack -- Pop the first operand into rax
+      emitAsmInst X86.Pop {X86.op = X86.Reg X86.Rbx} -- Pop the second operand into rbx
+      emitAsmInst X86.Pop {X86.op = X86.Reg X86.Rax} -- Pop the first operand into rax
       case op of
         Ast.Types.Add -> do
-          appendAssemblyCode "add rax, rbx\n"
+          emitAsmInst X86.Add {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
           pushTempToStack
         Ast.Types.Sub -> do
-          appendAssemblyCode "sub rax, rbx\n"
+          emitAsmInst X86.Sub {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
           pushTempToStack
         Ast.Types.Mul -> do
-          appendAssemblyCode "imul rax, rbx\n"
+          emitAsmInst X86.Imul {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
           pushTempToStack
         Ast.Types.Equal -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.EQ
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Je
         Ast.Types.NotEqual -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.NZ
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Jne
         Ast.Types.LessThan -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.LT
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Jl
         Ast.Types.LessThanOrEqual -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.LE
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Jle
         Ast.Types.GreaterThan -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.GT
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Jg
         Ast.Types.GreaterThanOrEqual -> do
-          appendAssemblyCode "cmp rax, rbx\n"
-          changeFlagOp X86.Translate.GE
+          emitAsmInst X86.Cmp {X86.src = X86.Reg X86.Rbx, X86.dst = X86.Reg X86.Rax}
+          changeFlagOp X86.Jge
 
       return ()
   | Mir.Types.Load _ var <- inst = do
@@ -142,90 +127,74 @@ translateInst inst
       storeEaxToVar $ Mir.Types.varId var
       return ()
   | Mir.Types.Call _ id _ <- inst =
-      appendAssemblyCode $ "call " ++ id ++ "\n"
+      emitAsmInst $ X86.Call {X86.name = id}
   | Mir.Types.Param _ <- inst = do
       -- pushTempToStack
       return ()
   | Mir.Types.Return _ <- inst =
-      appendAssemblyCode "ret\n"
+      emitAsmInst X86.Ret
   | Mir.Types.Jump label <- inst = do
-      appendAssemblyCode $ "jmp " ++ label ++ "\n"
+      emitAsmInst $ X86.Jmp {X86.label = label}
   | Mir.Types.CondJump _ label1 label2 <- inst = do
       jmpInstruction <-
         flagOp >>= \case
-          Just cond -> return $ ifCondToJmpInstruction cond ++ " " ++ label1 ++ "\n"
+          Just cond -> return $ X86.JmpCond {X86.cond = cond, X86.label = label1}
           Nothing -> error "No flag changing operation before conditional jump"
-      appendAssemblyCode jmpInstruction
-      appendAssemblyCode $ "jmp " ++ label2 ++ "\n"
+      emitAsmInst jmpInstruction
+      emitAsmInst $ X86.Jmp {X86.label = label2}
 
 translateBasicBlock :: Mir.Types.BasicBlock -> State TranslationState ()
 translateBasicBlock (Mir.Types.BasicBlock label insts) = do
-  appendAssemblyCode $ label ++ ":\n"
+  emitAsmInst X86.Label {X86.label = label}
   mapM_ translateInst insts
 
 translateFun :: Mir.Types.Fun -> State TranslationState ()
 translateFun (Mir.Types.Fun id args locals _ basicBlocks) = do
-  appendAssemblyCode $ "\n" ++ id ++ ":\n"
-
-  -- Initialize stack frame
-  appendAssemblyCode "push rbp\n"
-  appendAssemblyCode "mov rbp, rsp\n"
-
   -- Allocate space for local variables
-  let argCount = length args
-  let localCount = length locals
-  let stackFrameSize = (argCount + localCount) * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
-  modify (\s -> s {stackFrameSize})
-  appendAssemblyCode $ "sub rsp, " ++ show stackFrameSize ++ "\n"
-  -- Initialize stack frame variables
-  let stackFrameVars = Data.Map.fromList $ zip (args ++ locals) [0, 8 .. (stackFrameSize - 8)]
+  let stackFrameSize = length locals * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
+  mapM_ emitAsmInst (X86.functionPrologue id stackFrameSize)
+
+  -- from rbp:
+  -- at position 0 is the last rbp
+  -- at position 8 is the return address
+  -- at position 16 is the first argument, the second argument is at position 24, etc.
+  let argOffsets = zip args (iterate (+ 8) 16)
+
+  -- local variables have negative offsets from rbp
+  -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
+  let varOffsets = zip locals (iterate (\x -> x - 8) (-8))
+
+  let stackFrameVars = Data.Map.fromList $ argOffsets ++ varOffsets
   modify (\s -> s {stackFrameVars})
 
-  -- Translate each basic block
-  mapM_
-    ( \bb -> do
-        translateBasicBlock bb
-        appendAssemblyCode "\n"
-    )
-    (reverse basicBlocks)
+  mapM_ translateBasicBlock (reverse basicBlocks)
 
-  -- Restore stack frame
-  appendAssemblyCode "pop rbp\n"
-  appendAssemblyCode "ret\n"
+  mapM_ emitAsmInst X86.functionEpilogue
 
 tranlateMainFun :: Mir.Types.Fun -> State TranslationState ()
-tranlateMainFun (Mir.Types.Fun _ args locals _ basicBlocks) = do
-  appendAssemblyCode "\n_start:\n"
+tranlateMainFun (Mir.Types.Fun _ _ locals _ basicBlocks) = do
+  let frameSize = length locals * 8
+  mapM_ emitAsmInst (X86.mainFunctionPrologue frameSize)
 
-  -- Allocate space for local variables
-  let argCount = length args
-  let localCount = length locals
-  let stackFrameSize = (argCount + localCount) * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
-  modify (\s -> s {stackFrameSize})
-  -- Initialize stack frame variables
-  let stackFrameVars = Data.Map.fromList $ zip (args ++ locals) [0, 8 .. (stackFrameSize - 8)]
+  -- here 0 is the first local variable, -8 is the second, etc.
+  let varOffsets = zip locals (iterate (\x -> x - 8) 0)
+  let stackFrameVars = Data.Map.fromList varOffsets
   modify (\s -> s {stackFrameVars})
-  appendAssemblyCode $ "sub rsp, " ++ show stackFrameSize ++ "\n"
 
-  -- Translate each basic block
-  mapM_
-    ( \bb -> do
-        translateBasicBlock bb
-        appendAssemblyCode "\n"
-    )
-    (reverse basicBlocks)
+  mapM_ translateBasicBlock (reverse basicBlocks)
 
-  appendAssemblyCode "mov rax, 60\n" -- syscall number for sys_exit
-  appendAssemblyCode "xor rdi, rdi\n" -- exit code 0
-  appendAssemblyCode "syscall\n" -- exit the program
+  mapM_ emitAsmInst X86.mainFunctionEpilogue
 
 translateProgram' :: Mir.Types.Program -> State TranslationState ()
 translateProgram' (Mir.Types.Program funs externFuns mainFun) = do
-  -- add global
-  appendAssemblyCode "global _start\n"
-  appendAssemblyCode "section .text\n"
-  -- translate extern functions
-  mapM_ (\Mir.Types.ExternFun {Mir.Types.externId} -> appendAssemblyCode $ "extern " ++ externId ++ "\n") externFuns
+  modify
+    ( \s ->
+        s
+          { fileHeader =
+              X86.fileHeader ((\Mir.Types.ExternFun {Mir.Types.externId} -> externId) <$> externFuns)
+          }
+    )
+
   -- translate main function
   case mainFun of
     Just fun -> tranlateMainFun fun
@@ -234,13 +203,13 @@ translateProgram' (Mir.Types.Program funs externFuns mainFun) = do
   mapM_ translateFun funs
 
 translateProgram :: Mir.Types.Program -> String
-translateProgram program = finalState.assemblyCode
+translateProgram program = show finalState
   where
     initialState =
       TranslationState
         { stackFrameVars = empty,
-          stackFrameSize = 0,
-          assemblyCode = "",
-          lastFlagChangingOp = Nothing
+          assemblyCode = [],
+          lastJmpCond = Nothing,
+          fileHeader = ""
         }
     (_, finalState) = runState (translateProgram' program) initialState

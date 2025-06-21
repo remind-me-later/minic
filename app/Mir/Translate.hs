@@ -195,9 +195,7 @@ transBlock label Ast.Block {annot = scope, stmts} = do
 
 transFun :: Ast.Semant.TypedFun -> State TranslationState Mir.Types.Fun
 transFun Ast.Fun {id, args, body} = do
-  l <- gets label
-  modify incLabel
-  let entryLabel = "entry_" ++ show l
+  let entryLabel = id ++ "_entry"
   _ <- transBlock entryLabel body
   blocks <- gets blocks
   modify popBlocks
