@@ -9,28 +9,20 @@ module Mir.Types
     BasicBlock (..),
     Fun (..),
     Program (..),
-    varId,
     ExternFun (..),
   )
 where
 
 import Ast qualified
-  ( Id,
-    Operator,
-  )
 
 type Temp = Int
 
 type Label = String
 
 data Var
-  = Local Ast.Id
-  | Arg Ast.Id
+  = Local {id :: Ast.Id}
+  | Arg {id :: Ast.Id}
   deriving (Eq)
-
-varId :: Var -> Ast.Id
-varId (Local id) = id
-varId (Arg id) = id
 
 instance Show Var where
   show (Local id) = "local " ++ id
@@ -46,37 +38,40 @@ instance Show Operand where
   show (Temp t) = "t" ++ show t
 
 data Inst
-  = Assign Temp Operand
-  | BinOp Temp Ast.Operator Temp Temp
-  | Load Temp Var
-  | Store Var Temp
-  | Call (Maybe Temp) Ast.Id Int
-  | Param Temp
-  | Return (Maybe Temp)
-  | Jump Label
-  | CondJump Temp Label Label
+  = Assign {dst :: Temp, srcOp :: Operand}
+  | UnaryOp {dst :: Temp, unop :: Ast.UnaryOp, src :: Temp}
+  | BinOp {dst :: Temp, binop :: Ast.BinOp, left :: Temp, right :: Temp}
+  | Load {dst :: Temp, srcVar :: Var}
+  | Store {dstVar :: Var, src :: Temp}
+  | Call {ret :: Maybe Temp, funId :: Ast.Id, argCount :: Int}
+  | Param {param :: Temp}
+  | Return {retVal :: Maybe Temp}
+  | Jump {target :: Label}
+  | CondJump {cond :: Temp, trueLabel :: Label, falseLabel :: Label}
   deriving (Eq)
 
 instance Show Inst where
-  show (Assign t op) = "t" ++ show t ++ " = " ++ show op
-  show (BinOp t1 op t2 t3) = "t" ++ show t1 ++ " = " ++ "t" ++ show t2 ++ " " ++ show op ++ " " ++ "t" ++ show t3
-  show (Load t v) = "t" ++ show t ++ " = " ++ show v
-  show (Store v t) = show v ++ " = t" ++ show t
-  show (Call (Just t) id n) = "t" ++ show t ++ " = call " ++ id ++ ", " ++ show n
-  show (Call Nothing id n) = "call " ++ id ++ ", " ++ show n
-  show (Param t) = "param " ++ "t" ++ show t
-  show (Return (Just t)) = "return " ++ "t" ++ show t
-  show (Return Nothing) = "return"
-  show (Jump label) = "goto " ++ label
-  show (CondJump t trueLabel falseLabel) =
-    "if " ++ "t" ++ show t ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
+  show Assign {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
+  show UnaryOp {dst, unop, src} = "t" ++ show dst ++ " = " ++ show unop ++ " t" ++ show src
+  show BinOp {dst, binop, left, right} =
+    "t" ++ show dst ++ " = " ++ "t" ++ show left ++ " " ++ show binop ++ " " ++ "t" ++ show right
+  show Load {dst, srcVar} = "t" ++ show dst ++ " = " ++ show srcVar
+  show Store {dstVar, src} = show dstVar ++ " = t" ++ show src
+  show Call {ret = Just t, funId, argCount} = "t" ++ show t ++ " = call " ++ funId ++ ", " ++ show argCount
+  show Call {ret = Nothing, funId, argCount} = "call " ++ funId ++ ", " ++ show argCount
+  show Param {param} = "param " ++ "t" ++ show param
+  show Return {retVal = Just t} = "return " ++ "t" ++ show t
+  show Return {retVal = Nothing} = "return"
+  show Jump {target} = "goto " ++ target
+  show CondJump {cond, trueLabel, falseLabel} =
+    "if " ++ "t" ++ show cond ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
 
 -- A Basic Block is a sequence of instructions that starts with a label
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 -- For simplicity here, we'll just list instructions and assume the last one is control flow.
 -- A more rigorous CFG would explicitly link blocks.
 data BasicBlock = BasicBlock
-  { blockLabel :: Label,
+  { label :: Label,
     insts :: [Inst]
   }
   deriving (Eq)

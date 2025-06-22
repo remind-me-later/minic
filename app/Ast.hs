@@ -5,6 +5,6 @@ module Ast
   )
 where
 
-import Ast.Parse
+import Ast.Parse 
 import Ast.Semant
 import Ast.Types

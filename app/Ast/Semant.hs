@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Ast.Semant
@@ -13,13 +11,13 @@ module Ast.Semant
 where
 
 import Ast.Types
-  ( Block (..),
+  ( BinOp (..),
+    Block (..),
     Exp (..),
     ExpInner (..),
     ExternFun (..),
     Fun (..),
     Id,
-    Operator (..),
     Program (..),
     RawBlock,
     RawExp,
@@ -28,11 +26,12 @@ import Ast.Types
     RawStmt,
     Stmt (..),
     Ty (..),
+    UnaryOp (..),
     VarDef (..),
   )
 import Control.Monad (when)
-import Control.Monad.State (State, gets, runState)
-import Control.Monad.State.Lazy (modify)
+import Control.Monad.State (State, gets, modify, runState)
+import Data.Functor ((<&>))
 import Env qualified
 import Prelude hiding (lookup)
 
@@ -49,70 +48,84 @@ type TypedProgram = Program Ty Env.Env
 data TypingState = TypingState
   { envs :: Env.EnvStack,
     errors :: [String],
-    curFun :: Maybe Ast.Types.Id
+    curFun :: Maybe Id
   }
 
 addError :: String -> TypingState -> TypingState
 addError err ts = ts {errors = err : ts.errors}
 
 insertVar :: VarDef -> TypingState -> TypingState
-insertVar v ts@TypingState {envs} = ts {envs = Env.insertVar v envs}
+insertVar v ts = ts {envs = Env.insertVar v ts.envs}
 
 insertArg :: VarDef -> TypingState -> TypingState
-insertArg v ts@TypingState {envs} = ts {envs = Env.insertArg v envs}
+insertArg v ts = ts {envs = Env.insertArg v ts.envs}
 
 pushEnv :: Env.Env -> TypingState -> TypingState
-pushEnv env ts@TypingState {envs} = ts {envs = Env.pushEnv env envs}
+pushEnv env ts = ts {envs = Env.pushEnv env ts.envs}
 
 popEnv :: TypingState -> TypingState
-popEnv ts@TypingState {envs} = ts {envs = Env.popEnv envs}
+popEnv ts = ts {envs = Env.popEnv ts.envs}
 
 peekEnv :: TypingState -> Env.Env
-peekEnv TypingState {envs} = Env.peekEnv envs
+peekEnv ts = Env.peekEnv ts.envs
 
-lookup :: Ast.Types.Id -> TypingState -> Maybe Env.Symbol
-lookup id TypingState {envs} = Env.lookup id envs
+lookup :: Id -> TypingState -> Maybe Env.Symbol
+lookup id ts = Env.lookup id ts.envs
 
 currentFun :: TypingState -> Maybe Env.Symbol
-currentFun ts@TypingState {curFun} =
-  case curFun of
-    Just funId -> Env.lookup funId ts.envs
-    Nothing -> Nothing
+currentFun ts = ts.curFun >>= flip Env.lookup ts.envs
 
 setCurrentFun :: Id -> TypingState -> TypingState
-setCurrentFun funId ts = ts {curFun = Just funId}
+setCurrentFun id ts = ts {curFun = Just id}
 
-typeOp :: Operator -> TypedExp -> TypedExp -> State TypingState Ty
-typeOp op Exp {annot = lty} Exp {annot = rty} =
-  case (lty, rty) of
-    (IntTy, IntTy) -> case op of
-      Add -> return IntTy
-      Sub -> return IntTy
-      Mul -> return IntTy
-      Modulo -> return IntTy
-      Equal -> return BoolTy
-      NotEqual -> return BoolTy
-      LessThan -> return BoolTy
-      GreaterThan -> return BoolTy
-      LessThanOrEqual -> return BoolTy
-      GreaterThanOrEqual -> return BoolTy
-      _ -> do
-        modify (addError ("Unsupported operator for IntTy: " ++ show op))
-        return VoidTy
-    (BoolTy, BoolTy) -> case op of
-      And -> return BoolTy
-      Or -> return BoolTy
-      Xor -> return BoolTy
-      Not -> return BoolTy
-      Equal -> return BoolTy
-      NotEqual -> return BoolTy
-      _ -> do
-        modify (addError ("Unsupported operator for BoolTy: " ++ show op))
-        return VoidTy
-    _ ->
-      do
-        modify (addError ("Type mismatch in operator: " ++ show lty ++ " " ++ show op ++ " " ++ show rty))
-        return VoidTy
+typeBinOp :: BinOp -> TypedExp -> TypedExp -> State TypingState Ty
+typeBinOp op Exp {annot = lty} Exp {annot = rty}
+  | (lty, rty) == (IntTy, IntTy) =
+      case op of
+        Add -> return IntTy
+        Sub -> return IntTy
+        Mul -> return IntTy
+        Modulo -> return IntTy
+        Equal -> return BoolTy
+        NotEqual -> return BoolTy
+        LessThan -> return BoolTy
+        GreaterThan -> return BoolTy
+        LessThanOrEqual -> return BoolTy
+        GreaterThanOrEqual -> return BoolTy
+        _ -> do
+          modify (addError ("Unsupported operator for IntTy: " ++ show op))
+          return VoidTy
+  | (lty, rty) == (BoolTy, BoolTy) =
+      case op of
+        And -> return BoolTy
+        Or -> return BoolTy
+        Xor -> return BoolTy
+        Equal -> return BoolTy
+        NotEqual -> return BoolTy
+        _ -> do
+          modify (addError ("Unsupported operator for BoolTy: " ++ show op))
+          return VoidTy
+  | otherwise = do
+      modify (addError ("Type mismatch in operator: " ++ show lty ++ " " ++ show op ++ " " ++ show rty))
+      return VoidTy
+
+typeUnaryOp :: UnaryOp -> TypedExp -> State TypingState Ty
+typeUnaryOp op Exp {annot}
+  | annot == IntTy =
+      case op of
+        UnarySub -> return IntTy
+        _ -> do
+          modify (addError ("Unsupported unary operator for IntTy: " ++ show op))
+          return VoidTy
+  | annot == BoolTy =
+      case op of
+        UnaryNot -> return BoolTy
+        _ -> do
+          modify (addError ("Unsupported unary operator for BoolTy: " ++ show op))
+          return VoidTy
+  | otherwise = do
+      modify (addError ("Type mismatch in unary operator: " ++ show annot ++ " " ++ show op))
+      return VoidTy
 
 typeExp :: RawExp -> State TypingState TypedExp
 typeExp Exp {exp}
@@ -132,8 +145,12 @@ typeExp Exp {exp}
   | BinExp {left, op, right} <- exp = do
       left <- typeExp left
       right <- typeExp right
-      opTy <- typeOp op left right
+      opTy <- typeBinOp op left right
       return Exp {annot = opTy, exp = BinExp {left, op, right}}
+  | UnaryExp {unop, exp} <- exp = do
+      exp <- typeExp exp
+      opTy <- typeUnaryOp unop exp
+      return Exp {annot = opTy, exp = UnaryExp {unop, exp}}
   | Call {id, args = callargs} <- exp = do
       symb <- gets (lookup id)
       callargs <- mapM typeExp callargs
@@ -167,14 +184,14 @@ typeExp Exp {exp}
 
 typeStmt :: RawStmt -> State TypingState TypedStmt
 typeStmt stmt
-  | LetStmt {vardef = v@VarDef {ty}, exp} <- stmt = do
+  | LetStmt {vardef, exp} <- stmt = do
       exp <- typeExp exp
 
-      when (exp.annot /= ty) $
-        modify (addError ("Type mismatch in variable definition: expected " ++ show ty ++ ", got " ++ show exp.annot))
+      when (exp.annot /= vardef.ty) $
+        modify (addError ("Type mismatch in variable definition: expected " ++ show vardef.ty ++ ", got " ++ show exp.annot))
 
-      modify $ insertVar v
-      return LetStmt {vardef = v, exp}
+      modify $ insertVar vardef
+      return LetStmt {vardef, exp}
   | AssignStmt {id, exp} <- stmt = do
       symb <- gets (lookup id)
       exp <- typeExp exp
@@ -216,12 +233,13 @@ typeStmt stmt
         modify (addError ("Condition in if statement must be of type BoolTy, got " ++ show cond.annot))
 
       ifBody <- typeBlock ifBody
-      case elseBody of
+      elseBody <- case elseBody of
         Just elseBlock -> do
-          elseAnnot <- typeBlock elseBlock
-          return IfStmt {cond, ifBody, elseBody = Just elseAnnot}
+          typeBlock elseBlock <&> Just
         Nothing ->
-          return IfStmt {cond, ifBody, elseBody = Nothing}
+          return Nothing
+
+      return IfStmt {cond, ifBody, elseBody}
   | WhileStmt {cond, body} <- stmt = do
       cond <- typeExp cond
 
@@ -249,6 +267,7 @@ typeFun Fun {id, args, retty, body = Block {stmts}} = do
   modify popEnv
   return Fun {id, args, retty, body = Block {annot = env, stmts = annotatedStmts}}
 
+-- | No typing is performed for external functions since their types are assumed to be correct.
 typeExternFun :: ExternFun -> State TypingState ExternFun
 typeExternFun = return
 
@@ -281,8 +300,16 @@ buildGlobalEnv Program {funcs, externFuns} =
 
 typeProgram :: RawProgram -> Either [String] TypedProgram
 typeProgram program =
-  let initialState = TypingState {envs = buildGlobalEnv program, errors = [], curFun = Nothing}
+  let initialState = makeInitialState program
       (typedProgram, finalState) = runState (typeProgram' program) initialState
    in if null finalState.errors
         then Right typedProgram
         else Left finalState.errors
+
+makeInitialState :: RawProgram -> TypingState
+makeInitialState program =
+  TypingState
+    { envs = buildGlobalEnv program,
+      errors = [],
+      curFun = Nothing
+    }

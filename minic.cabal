@@ -75,7 +75,12 @@ executable minic
                     X86.Types
 
     -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
+    default-extensions: DuplicateRecordFields,
+                        OverloadedRecordDot,
+                        LambdaCase,
+                        NoFieldSelectors,
+                        DisambiguateRecordFields,
+                        Strict
 
     -- Other library packages from which modules are imported.
     build-depends:    base >= 4.17

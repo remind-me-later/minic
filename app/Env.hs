@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Env
@@ -13,7 +11,7 @@ module Env
     pushEnv,
     popEnv,
     peekEnv,
-    SymbolVariant (..),
+    SymbolAlloc (..),
     insertArg,
     EnvStack (..),
     emptyEnv,
@@ -30,20 +28,23 @@ import Control.Applicative (Alternative (empty))
 import Data.Map qualified as Map
 import Prelude hiding (lookup)
 
-data SymbolVariant = Argument | Local | Global
+data SymbolAlloc
+  = Argument
+  | Local
+  | Global
   deriving (Eq)
 
-instance Show SymbolVariant where
+instance Show SymbolAlloc where
   show Argument = "Argument"
   show Local = "Local"
   show Global = "Global"
 
-data Symbol = Symbol {ty :: Ty, variant :: SymbolVariant}
+data Symbol = Symbol {ty :: Ty, alloc :: SymbolAlloc}
   deriving (Eq)
 
 instance Show Symbol where
-  show Symbol {ty, variant} =
-    "Symbol { ty: " ++ show ty ++ ", variant: " ++ show variant ++ " }"
+  show Symbol {ty, alloc} =
+    "Symbol { ty: " ++ show ty ++ ", alloc: " ++ show alloc ++ " }"
 
 data Env = Env
   { name :: String,
@@ -65,7 +66,7 @@ newtype EnvStack = EnvStack
   deriving (Eq)
 
 emptyEnv :: String -> Env
-emptyEnv name = Env {name = name, symbols = Map.empty}
+emptyEnv name = Env {name, symbols = Map.empty}
 
 insert :: Id -> Symbol -> EnvStack -> EnvStack
 insert id symbol stack' =
@@ -84,59 +85,58 @@ lookup id stack' =
         Nothing -> lookup id (EnvStack {stack = rest})
 
 pushEnv :: Env -> EnvStack -> EnvStack
-pushEnv env EnvStack {stack} =
-  EnvStack {stack = env : stack}
+pushEnv env es = EnvStack {stack = env : es.stack}
 
 popEnv :: EnvStack -> EnvStack
-popEnv EnvStack {stack} =
-  case stack of
+popEnv es =
+  case es.stack of
     [] -> error "Cannot pop from an empty environment stack"
     _ : rest -> EnvStack {stack = rest}
 
 peekEnv :: EnvStack -> Env
-peekEnv EnvStack {stack} =
-  case stack of
+peekEnv es =
+  case es.stack of
     [] -> error "Cannot peek into an empty environment stack"
     env : _ -> env
 
 insertFunction :: Fun a b -> EnvStack -> EnvStack
-insertFunction Fun {id, args, retty} =
+insertFunction f =
   insert
-    id
+    f.id
     Symbol
-      { variant = Global,
-        ty = FunTy {args = (.ty) <$> args, retty = retty}
+      { alloc = Global,
+        ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
       }
 
 insertExternFunction :: ExternFun -> EnvStack -> EnvStack
-insertExternFunction ExternFun {id, args, retty} =
+insertExternFunction f =
   insert
-    id
+    f.id
     Symbol
-      { variant = Global,
-        ty = FunTy {args, retty}
+      { alloc = Global,
+        ty = FunTy {args = f.args, retty = f.retty}
       }
 
 insertVar :: VarDef -> EnvStack -> EnvStack
-insertVar VarDef {id, ty} = insert id Symbol {variant = Local, ty}
+insertVar v = insert v.id Symbol {alloc = Local, ty = v.ty}
 
 insertArg :: VarDef -> EnvStack -> EnvStack
-insertArg VarDef {id, ty} = insert id Symbol {variant = Argument, ty}
+insertArg v = insert v.id Symbol {alloc = Argument, ty = v.ty}
 
 insertFun :: Fun a b -> EnvStack -> EnvStack
-insertFun Fun {id, args, retty} =
+insertFun f =
   insert
-    id
+    f.id
     Symbol
-      { variant = Global,
-        ty = FunTy {args = (.ty) <$> args, retty}
+      { alloc = Global,
+        ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
       }
 
 emptyEnvStack :: String -> EnvStack
 emptyEnvStack name = EnvStack {stack = [emptyEnv name]}
 
 numSymbolsInEnv :: Env -> Int
-numSymbolsInEnv Env {symbols} = Map.size symbols
+numSymbolsInEnv e = Map.size e.symbols
 
 toIdList :: Env -> [Id]
-toIdList Env {symbols} = Map.keys symbols
+toIdList e = Map.keys e.symbols

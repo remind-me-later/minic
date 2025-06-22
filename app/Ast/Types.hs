@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-
 module Ast.Types where
 
 type Id = String
@@ -14,29 +12,29 @@ data Ty
       }
   deriving (Show, Eq)
 
-data Operator
-  = Add
+data BinOp
+  = -- Arithmetic
+    Add
   | Sub
   | Mul
-  | Assign
-  | Equal
+  | Modulo
+  | -- Logical
+    And
+  | Or
+  | Xor
+  | -- Comparison
+    Equal
   | LessThan
   | GreaterThan
   | LessThanOrEqual
   | GreaterThanOrEqual
   | NotEqual
-  | And
-  | Or
-  | Not
-  | Xor
-  | Modulo
   deriving (Eq)
 
-instance Show Operator where
+instance Show BinOp where
   show Add = "+"
   show Sub = "-"
   show Mul = "*"
-  show Assign = "="
   show Equal = "=="
   show LessThan = "<"
   show GreaterThan = ">"
@@ -45,9 +43,17 @@ instance Show Operator where
   show NotEqual = "!="
   show And = "&&"
   show Or = "||"
-  show Not = "!"
   show Xor = "^"
   show Modulo = "%"
+
+data UnaryOp
+  = UnarySub
+  | UnaryNot
+  deriving (Eq)
+
+instance Show UnaryOp where
+  show UnarySub = "-"
+  show UnaryNot = "!"
 
 data Exp ea = Exp
   { annot :: ea,
@@ -58,8 +64,12 @@ data Exp ea = Exp
 data ExpInner ea
   = BinExp
       { left :: Exp ea,
-        op :: Operator,
+        op :: BinOp,
         right :: Exp ea
+      }
+  | UnaryExp
+      { unop :: UnaryOp,
+        exp :: Exp ea
       }
   | NumberExp
       { num :: Int

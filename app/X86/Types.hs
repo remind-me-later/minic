@@ -1,6 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module X86.Types where
 
 -- use NASM syntax
@@ -68,7 +65,12 @@ data Inst
   | Add {src :: Op, dst :: Op}
   | Sub {src :: Op, dst :: Op}
   | Imul {src :: Op, dst :: Op}
+  | Mod {src :: Op, dst :: Op}
+  | And {src :: Op, dst :: Op}
+  | Or {src :: Op, dst :: Op}
   | Xor {src :: Op, dst :: Op}
+  | Neg {op :: Op}
+  | Not {op :: Op}
   | Cmp {src :: Op, dst :: Op}
   | Push {op :: Op}
   | Pop {op :: Op}
@@ -81,52 +83,22 @@ data Inst
   deriving (Eq)
 
 instance Show Inst where
-  show (Mov src dst) = "\tmov " ++ show dst ++ ", " ++ show src
-  show (Add src dst) = "\tadd " ++ show dst ++ ", " ++ show src
-  show (Sub src dst) = "\tsub " ++ show dst ++ ", " ++ show src
-  show (Imul src dst) = "\tmul " ++ show dst ++ ", " ++ show src
-  show (Xor src dst) = "\txor " ++ show dst ++ ", " ++ show src
-  show (Cmp src dst) = "\tcmp " ++ show dst ++ ", " ++ show src
-  show (Push op) = "\tpush " ++ show op
-  show (Pop op) = "\tpop " ++ show op
-  show (Call name) = "\tcall " ++ name
+  show Mov {src, dst} = "\tmov " ++ show dst ++ ", " ++ show src
+  show Add {src, dst} = "\tadd " ++ show dst ++ ", " ++ show src
+  show Sub {src, dst} = "\tsub " ++ show dst ++ ", " ++ show src
+  show Imul {src, dst} = "\timul " ++ show dst ++ ", " ++ show src
+  show Mod {src, dst} = "\tdiv " ++ show dst ++ ", " ++ show src
+  show And {src, dst} = "\tand " ++ show dst ++ ", " ++ show src
+  show Or {src, dst} = "\tor " ++ show dst ++ ", " ++ show src
+  show Xor {src, dst} = "\txor " ++ show dst ++ ", " ++ show src
+  show Neg {op} = "\tneg " ++ show op
+  show Not {op} = "\tnot " ++ show op
+  show Cmp {src, dst} = "\tcmp " ++ show dst ++ ", " ++ show src
+  show Push {op} = "\tpush " ++ show op
+  show Pop {op} = "\tpop " ++ show op
+  show Call {name} = "\tcall " ++ name
   show Ret = "\tret"
-  show (Jmp label) = "\tjmp " ++ label
-  show (JmpCond cond label) = "\t" ++ show cond ++ " " ++ label
-  show (Label label) = label ++ ":"
+  show Jmp {label} = "\tjmp " ++ label
+  show JmpCond {cond, label} = "\t" ++ show cond ++ " " ++ label
+  show Label {label} = label ++ ":"
   show Syscall = "\tsyscall"
-
-functionPrologue :: String -> Int -> [Inst]
-functionPrologue name frameSize =
-  [ Label name, -- Function label
-    Push (Reg Rbp), -- Save base pointer
-    Mov (Reg Rsp) (Reg Rbp), -- Set base pointer to current stack pointer
-    Sub (Imm frameSize) (Reg Rsp) -- Allocate stack frame
-  ]
-
-functionEpilogue :: [Inst]
-functionEpilogue =
-  [ Mov (Reg Rbp) (Reg Rsp), -- Restore stack pointer
-    Pop (Reg Rbp), -- Restore base pointer
-    Ret -- Return from function
-  ]
-
-mainFunctionPrologue :: Int -> [Inst]
-mainFunctionPrologue frameSize =
-  [ Label "_start",
-    Sub (Imm frameSize) (Reg Rsp) -- Allocate stack frame
-  ]
-
-mainFunctionEpilogue :: [Inst]
-mainFunctionEpilogue =
-  [ Mov (Reg Rax) (Imm 60), -- syscall number for sys_exit
-    Xor (Reg Rdi) (Reg Rdi), -- exit code 0
-    Syscall -- exit the program
-  ]
-
-fileHeader :: [String] -> String
-fileHeader externs =
-  "BITS 64\n\n"
-    ++ "global _start\n\n"
-    ++ "section .text\n"
-    ++ concatMap (\e -> "extern " ++ e ++ "\n") externs
