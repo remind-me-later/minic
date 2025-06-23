@@ -126,6 +126,11 @@ translateInst inst
           emitAsmInst Imul {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Mul operation changes the flags
           pushTempToStack
+        Ast.Div -> do
+          emitAsmInst Cqo -- Sign-extend rax into rdx before division
+          emitAsmInst Idiv {src = Reg Rbx}
+          changeFlagOp Jnz -- Div operation changes the flags
+          pushTempToStack
         Ast.Equal -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Je
@@ -156,11 +161,12 @@ translateInst inst
           emitAsmInst Xor {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Xor operation changes the flags
           pushTempToStack
-        Ast.Modulo -> do
-          emitAsmInst Mod {src = Reg Rbx, dst = Reg Rax}
+        Ast.Mod -> do
+          emitAsmInst Cqo -- Sign-extend rax into rdx before division
+          emitAsmInst Idiv {src = Reg Rbx}
+          -- Result is in rdx, push it to the stack
+          emitAsmInst Push {op = Reg Rdx}
           changeFlagOp Jnz -- Modulo operation changes the flags
-          pushTempToStack
-
       return ()
   | Mir.UnaryOp {unop} <- inst = do
       emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax

@@ -17,7 +17,8 @@ data BinOp
     Add
   | Sub
   | Mul
-  | Modulo
+  | Div
+  | Mod
   | -- Logical
     And
   | Or
@@ -35,6 +36,7 @@ instance Show BinOp where
   show Add = "+"
   show Sub = "-"
   show Mul = "*"
+  show Div = "/"
   show Equal = "=="
   show LessThan = "<"
   show GreaterThan = ">"
@@ -44,7 +46,7 @@ instance Show BinOp where
   show And = "&&"
   show Or = "||"
   show Xor = "^"
-  show Modulo = "%"
+  show Mod = "%"
 
 data UnaryOp
   = UnarySub

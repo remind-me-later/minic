@@ -1,15 +1,18 @@
 extern void print_char(int c);
 
 void main() {
-    print_char(48+fact(3));
+    print_int(fact(6));
+    print_char(10);
 }
 
 void print_int(int n) {
+    int i= 0;
     if (n < 10) {
         print_char(48+n);
     } else {
         print_int(n/10);
-        print_char(48+(n%10));
+        i = n%10;
+        print_char(48+i);
     }
 }
 

@@ -9,5 +9,9 @@ print_char.o: print_char.asm
 test: print_char.o test.o
 	mold print_char.o test.o -o test
 
+run: test
+	./test
+
+
 clean:
 	rm -f *.o test

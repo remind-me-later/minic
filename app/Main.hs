@@ -17,11 +17,7 @@ main = do
         Right ast -> return ast
         Left err -> error $ "Parsing failed: " ++ show err
 
-      typedAst <- case Ast.Semant.typeProgram ast of
-        Right table -> return table
-        Left errs -> error $ "Type checking failed: " ++ show errs
-
-      print typedAst
+      print ast
     ["--semant", fileName] -> do
       contents <- readFile fileName
       ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
@@ -45,6 +41,18 @@ main = do
 
       let mirProgram = Mir.Translate.transProgram typedAst
       print mirProgram
+    ["--mir", fileName, "-o", outFile] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
+
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
+
+      let mirProgram = Mir.Translate.transProgram typedAst
+      writeFile outFile (show mirProgram)
     ["--x86", fileName] -> do
       contents <- readFile fileName
       ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
@@ -58,4 +66,17 @@ main = do
       let mirProgram = Mir.Translate.transProgram typedAst
       let x86Program = X86.Translate.translateProgram mirProgram
       putStrLn x86Program
-    _ -> putStrLn "Usage: compiler --mir <file> | --x86 <file> | --ast <file> | --semant <file>"
+    ["--x86", fileName, "-o", outFile] -> do
+      contents <- readFile fileName
+      ast <- case Text.Parsec.parse Ast.Parse.program fileName contents of
+        Right ast -> return ast
+        Left err -> error $ "Parsing failed: " ++ show err
+
+      typedAst <- case Ast.Semant.typeProgram ast of
+        Right table -> return table
+        Left errs -> error $ "Type checking failed: " ++ show errs
+
+      let mirProgram = Mir.Translate.transProgram typedAst
+      let x86Program = X86.Translate.translateProgram mirProgram
+      writeFile outFile x86Program
+    _ -> putStrLn "Usage: compiler --mir <file> [-o <outfile>] | --x86 <file> [-o <outfile>] | --ast <file> | --semant <file>"

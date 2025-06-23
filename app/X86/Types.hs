@@ -65,7 +65,9 @@ data Inst
   | Add {src :: Op, dst :: Op}
   | Sub {src :: Op, dst :: Op}
   | Imul {src :: Op, dst :: Op}
-  | Mod {src :: Op, dst :: Op}
+  | -- Note: Idiv stores the quotient in rax and the remainder in rdx
+    Idiv {src :: Op}
+  | Cqo -- Sign-extend rax into rdx before division
   | And {src :: Op, dst :: Op}
   | Or {src :: Op, dst :: Op}
   | Xor {src :: Op, dst :: Op}
@@ -87,7 +89,8 @@ instance Show Inst where
   show Add {src, dst} = "\tadd " ++ show dst ++ ", " ++ show src
   show Sub {src, dst} = "\tsub " ++ show dst ++ ", " ++ show src
   show Imul {src, dst} = "\timul " ++ show dst ++ ", " ++ show src
-  show Mod {src, dst} = "\tdiv " ++ show dst ++ ", " ++ show src
+  show Idiv {src} = "\tidiv " ++ show src
+  show Cqo = "\tcqo"
   show And {src, dst} = "\tand " ++ show dst ++ ", " ++ show src
   show Or {src, dst} = "\tor " ++ show dst ++ ", " ++ show src
   show Xor {src, dst} = "\txor " ++ show dst ++ ", " ++ show src

@@ -85,7 +85,8 @@ typeBinOp op Exp {annot = lty} Exp {annot = rty}
         Add -> return IntTy
         Sub -> return IntTy
         Mul -> return IntTy
-        Modulo -> return IntTy
+        Div -> return IntTy
+        Mod -> return IntTy
         Equal -> return BoolTy
         NotEqual -> return BoolTy
         LessThan -> return BoolTy

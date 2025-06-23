@@ -31,7 +31,7 @@ comment :: PC.Parser ()
 comment = PC.try (PC.string "//" *> many (PC.satisfy (/= '\n')) *> optional (PC.char '\n')) $> ()
 
 lex :: PC.Parser a -> PC.Parser a
-lex p = p <* PC.spaces <* optional comment
+lex p = p <* PC.spaces
 
 keyword :: String -> PC.Parser String
 keyword kw = lex (PC.string kw)
@@ -109,7 +109,12 @@ exp = eqexp
 
     mulexp = do
       left <- unaryexp
-      maybeOp <- optional (symbol "*" $> Mul)
+      maybeOp <-
+        optional
+          ( PC.try (symbol "*") $> Mul
+              <|> PC.try (symbol "/" $> Div)
+              <|> symbol "%" $> Mod
+          )
       case maybeOp of
         Just op -> do
           right <- mulexp
