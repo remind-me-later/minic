@@ -28,10 +28,20 @@ import Text.ParserCombinators.Parsec qualified as PC
 import Prelude hiding (exp, id, lex)
 
 comment :: PC.Parser ()
-comment = PC.try (PC.string "//" *> many (PC.satisfy (/= '\n')) *> optional (PC.char '\n')) $> ()
+comment =
+  PC.string "//"
+    *> many (PC.satisfy (/= '\n'))
+    *> ( PC.try (PC.char '\n')
+           $> ()
+           <|> PC.eof
+       )
+
+-- Space consumer: skips whitespace and comments
+sc :: PC.Parser ()
+sc = PC.skipMany (PC.try comment <|> PC.space $> ())
 
 lex :: PC.Parser a -> PC.Parser a
-lex p = p <* PC.spaces
+lex p = p <* sc
 
 keyword :: String -> PC.Parser String
 keyword kw = lex (PC.string kw)
@@ -234,7 +244,7 @@ externfun = do
 
 program :: PC.Parser RawProgram
 program = do
-  _ <- PC.spaces
+  _ <- sc
   defs <- many (PC.try (Left <$> fun) <|> (Right <$> externfun))
   _ <- PC.eof
 

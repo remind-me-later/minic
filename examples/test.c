@@ -5,6 +5,7 @@ void main() {
     print_char(10);
 }
 
+// This function prints an integer to the console.
 void print_int(int n) {
     int i= 0;
     if (n < 10) {
