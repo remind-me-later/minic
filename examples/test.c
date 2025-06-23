@@ -1,7 +1,8 @@
 extern void print_char(int c);
 
 void main() {
-    print_char(fact(4)*3);
+    int t = fact(2);
+    print_char(48+t);
 }
 
 int fact(int n) {

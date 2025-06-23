@@ -6,24 +6,30 @@ section .text
 extern print_char
 
 _start:
-	sub rsp, 0
+	mov rbp, rsp
+	sub rsp, 8
 main_entry:
-	push 4
-	call fib
-	push 3
+	push 2
+	call fact
+	push rax
+	pop rax
+	mov [rbp+0], rax
+	push 48
+	mov rax, [rbp+0]
+	push rax
 	pop rbx
 	pop rax
-	imul rax, rbx
+	add rax, rbx
 	push rax
 	call print_char
 	mov rax, 60
 	xor rdi, rdi
 	syscall
-fib:
+fact:
 	push rbp
 	mov rbp, rsp
 	sub rsp, 0
-fib_entry:
+fact_entry:
 	mov rax, [rbp+16]
 	push rax
 	push 1
@@ -34,6 +40,7 @@ fib_entry:
 	jmp if_end_1
 if_then_0:
 	push 1
+	pop rax
 	mov rsp, rbp
 	pop rbp
 	ret
@@ -48,11 +55,13 @@ if_end_1:
 	pop rax
 	sub rax, rbx
 	push rax
-	call fib
+	call fact
+	push rax
 	pop rbx
 	pop rax
 	imul rax, rbx
 	push rax
+	pop rax
 	mov rsp, rbp
 	pop rbp
 	ret

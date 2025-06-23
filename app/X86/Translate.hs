@@ -28,6 +28,7 @@ functionEpilogue =
 mainFunctionPrologue :: Int -> [Inst]
 mainFunctionPrologue frameSize =
   [ Label {label = "_start"},
+    Mov {src = Reg Rsp, dst = Reg Rbp}, -- Set base pointer to current stack pointer
     Sub {src = Imm frameSize, dst = Reg Rsp} -- Allocate stack frame
   ]
 
@@ -181,12 +182,19 @@ translateInst inst
       popTempFromStack
       storeEaxToVar dstVar.id
       return ()
-  | Mir.Call {funId} <- inst =
+  | Mir.Call {funId, ret} <- inst = do
       emitAsmInst $ Call {name = funId}
+      case ret of
+        Just {} -> do
+          -- push the return value to the stack
+          pushTempToStack
+        Nothing -> return ()
   | Mir.Param {} <- inst = do
-      -- pushTempToStack
       return ()
-  | Mir.Return {} <- inst = mapM_ emitAsmInst functionEpilogue
+  | Mir.Return {} <- inst = do
+      -- Return value goes to rax
+      popTempFromStack
+      mapM_ emitAsmInst functionEpilogue
   | Mir.Jump {target} <- inst = emitAsmInst $ Jmp {label = target}
   | Mir.CondJump {trueLabel, falseLabel} <- inst = do
       jmpInstruction <-
@@ -215,7 +223,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
 
   -- local variables have negative offsets from rbp
   -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
-  let varOffsetList = zip locals (iterate' (+ (-8)) (-8))
+  let varOffsetList = zip locals (iterate' (+ (-8)) 0)
 
   let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
   modify (\s -> s {varOffsets})
