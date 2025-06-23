@@ -10,13 +10,13 @@ _start:
 main_entry:
 	push 4
 	call fib
-	push 4
+	push 3
 	pop rbx
 	pop rax
-	mul rax, rbx
+	imul rax, rbx
 	push rax
 	call print_char
-	mov 60, rax
+	mov rax, 60
 	xor rdi, rdi
 	syscall
 fib:
@@ -51,7 +51,7 @@ if_end_1:
 	call fib
 	pop rbx
 	pop rax
-	mul rax, rbx
+	imul rax, rbx
 	push rax
 	mov rsp, rbp
 	pop rbp

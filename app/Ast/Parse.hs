@@ -160,7 +160,7 @@ stmt =
     <|> PC.try ifstmt
     <|> PC.try whilestmt
     <|> PC.try assignstmt
-    <|> PC.try expstmt
+    <|> expstmt
   where
     letstmt = do
       vardef <- vardef

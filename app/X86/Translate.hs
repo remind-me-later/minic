@@ -4,7 +4,7 @@ module X86.Translate where
 
 import Ast.Types qualified as Ast
 import Control.Monad (forM_)
-import Control.Monad.State (State, get, modify, runState)
+import Control.Monad.State (State, gets, modify, runState)
 import Data.List (iterate')
 import Data.Map (Map, empty, fromList, lookup)
 import Mir.Types qualified as Mir
@@ -33,7 +33,7 @@ mainFunctionPrologue frameSize =
 
 mainFunctionEpilogue :: [Inst]
 mainFunctionEpilogue =
-  [ Mov {src = Reg Rax, dst = Imm 60}, -- syscall number for sys_exit
+  [ Mov {src = Imm 60, dst = Reg Rax}, -- syscall number for sys_exit
     Xor {src = Reg Rdi, dst = Reg Rdi}, -- exit code 0
     Syscall -- exit the program
   ]
@@ -53,28 +53,18 @@ data TranslationState = TranslationState
   }
 
 instance Show TranslationState where
-  show TranslationState {assemblyCode, fileHeader} =
-    fileHeader ++ "\n" ++ unlines (show <$> assemblyCode)
+  show ts = ts.fileHeader ++ "\n" ++ unlines (show <$> ts.assemblyCode)
 
 changeFlagOp :: JmpCond -> State TranslationState ()
 changeFlagOp cond = modify (\s -> s {lastJmpCond = Just cond})
 
-flagOp :: State TranslationState (Maybe JmpCond)
-flagOp = do
-  TranslationState {lastJmpCond} <- get
-  return lastJmpCond
-
 emitAsmInst :: Inst -> State TranslationState ()
-emitAsmInst code = do
-  TranslationState {assemblyCode} <- get
-  modify (\s -> s {assemblyCode = assemblyCode ++ [code]})
+emitAsmInst code = modify (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
 
 -- Offset from rbp (base pointer) for local variables
 -- All variables are QWORDS and aligned
 getVarOffset :: Ast.Id -> State TranslationState (Maybe Int)
-getVarOffset varId = do
-  TranslationState {varOffsets} <- get
-  return $ Data.Map.lookup varId varOffsets
+getVarOffset varId = gets (Data.Map.lookup varId . (.varOffsets))
 
 loadVarToEax :: Ast.Id -> State TranslationState ()
 loadVarToEax varId = do
@@ -109,20 +99,20 @@ popTempFromStack = emitAsmInst Pop {op = Reg Rax}
 
 translateInst :: Mir.Inst -> State TranslationState ()
 translateInst inst
-  | Mir.Assign _ operand <- inst = do
+  | Mir.Assign {srcOp} <- inst = do
       -- Translate assignment instruction
-      case operand of
+      case srcOp of
         Mir.ConstInt value -> do
-          emitAsmInst $ Push {op = Imm value}
+          emitAsmInst Push {op = Imm value}
           return ()
         Mir.Temp _ -> do
           -- Assuming tempOperand is already in rax
           pushTempToStack
           return ()
-  | Mir.BinOp _ op _ _ <- inst = do
+  | Mir.BinOp {binop} <- inst = do
       emitAsmInst Pop {op = Reg Rbx} -- Pop the second operand into rbx
       emitAsmInst Pop {op = Reg Rax} -- Pop the first operand into rax
-      case op of
+      case binop of
         Ast.Add -> do
           emitAsmInst Add {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Add operation changes the flags
@@ -171,9 +161,9 @@ translateInst inst
           pushTempToStack
 
       return ()
-  | Mir.UnaryOp _ op _ <- inst = do
+  | Mir.UnaryOp {unop} <- inst = do
       emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax
-      case op of
+      case unop of
         Ast.UnarySub -> do
           emitAsmInst Neg {op = Reg Rax}
           changeFlagOp Jnz -- Negation changes the flags
@@ -183,28 +173,28 @@ translateInst inst
           changeFlagOp Jz -- Not operation changes the flags
           pushTempToStack
       return ()
-  | Mir.Load _ var <- inst = do
-      loadVarToEax var.id
+  | Mir.Load {srcVar} <- inst = do
+      loadVarToEax srcVar.id
       pushTempToStack
       return ()
-  | Mir.Store var _ <- inst = do
+  | Mir.Store {dstVar} <- inst = do
       popTempFromStack
-      storeEaxToVar var.id
+      storeEaxToVar dstVar.id
       return ()
-  | Mir.Call _ id _ <- inst =
-      emitAsmInst $ Call {name = id}
-  | Mir.Param _ <- inst = do
+  | Mir.Call {funId} <- inst =
+      emitAsmInst $ Call {name = funId}
+  | Mir.Param {} <- inst = do
       -- pushTempToStack
       return ()
-  | Mir.Return _ <- inst = mapM_ emitAsmInst functionEpilogue
-  | Mir.Jump label <- inst = emitAsmInst $ Jmp {label = label}
-  | Mir.CondJump _ label1 label2 <- inst = do
+  | Mir.Return {} <- inst = mapM_ emitAsmInst functionEpilogue
+  | Mir.Jump {target} <- inst = emitAsmInst $ Jmp {label = target}
+  | Mir.CondJump {trueLabel, falseLabel} <- inst = do
       jmpInstruction <-
-        flagOp >>= \case
-          Just cond -> return $ JmpCond {cond = cond, label = label1}
+        (gets (.lastJmpCond)) >>= \case
+          Just cond -> return $ JmpCond {cond = cond, label = trueLabel}
           Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
-      emitAsmInst $ Jmp {label = label2}
+      emitAsmInst $ Jmp {label = falseLabel}
 
 translateBasicBlock :: Mir.BasicBlock -> State TranslationState ()
 translateBasicBlock (Mir.BasicBlock label insts) = do
@@ -212,7 +202,7 @@ translateBasicBlock (Mir.BasicBlock label insts) = do
   mapM_ translateInst insts
 
 translateFun :: Mir.Fun -> State TranslationState ()
-translateFun (Mir.Fun id args locals _ basicBlocks) = do
+translateFun Mir.Fun {id, args, locals, blocks} = do
   -- Allocate space for local variables
   let stackFrameSize = length locals * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
   mapM_ emitAsmInst (functionPrologue id stackFrameSize)
@@ -230,12 +220,12 @@ translateFun (Mir.Fun id args locals _ basicBlocks) = do
   let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
   modify (\s -> s {varOffsets})
 
-  mapM_ translateBasicBlock (reverse basicBlocks)
+  mapM_ translateBasicBlock (reverse blocks)
 
   mapM_ emitAsmInst functionEpilogue
 
 tranlateMainFun :: Mir.Fun -> State TranslationState ()
-tranlateMainFun (Mir.Fun _ _ locals _ basicBlocks) = do
+tranlateMainFun Mir.Fun {locals, blocks} = do
   let frameSize = length locals * 8
   mapM_ emitAsmInst (mainFunctionPrologue frameSize)
 
@@ -244,12 +234,12 @@ tranlateMainFun (Mir.Fun _ _ locals _ basicBlocks) = do
   let varOffsets = Data.Map.fromList varOffsetList
   modify (\s -> s {varOffsets})
 
-  mapM_ translateBasicBlock (reverse basicBlocks)
+  mapM_ translateBasicBlock (reverse blocks)
 
   mapM_ emitAsmInst mainFunctionEpilogue
 
 translateProgram' :: Mir.Program -> State TranslationState ()
-translateProgram' (Mir.Program funs externFuns mainFun) = do
+translateProgram' Mir.Program {funs, externFuns, mainFun} = do
   modify
     ( \s ->
         s
