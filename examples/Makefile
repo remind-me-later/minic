@@ -1,17 +1,16 @@
-all: test
+.POSIX:
+.PHONY: all run clean
 
-test.o: test.asm
-	nasm -f elf64 test.asm -o test.o
+all: test.exe
 
-print_char.o: print_char.asm
-	nasm -f elf64 print_char.asm -o print_char.o
+%.o: %.asm
+	as --64 -o $@ $<
 
-test: print_char.o test.o
-	mold print_char.o test.o -o test
+test.exe: print_char.o test.o
+	mold print_char.o test.o -o test.exe
 
-run: test
-	./test
-
+run: test.exe
+	./test.exe
 
 clean:
-	rm -f *.o test
+	rm -f *.o test.exe

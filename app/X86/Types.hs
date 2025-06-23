@@ -1,6 +1,6 @@
 module X86.Types where
 
--- use NASM syntax
+-- use GAS (AT&T) syntax
 
 data Reg
   = Rax
@@ -14,14 +14,14 @@ data Reg
   deriving (Eq)
 
 instance Show Reg where
-  show Rax = "rax"
-  show Rbx = "rbx"
-  show Rcx = "rcx"
-  show Rdx = "rdx"
-  show Rsi = "rsi"
-  show Rdi = "rdi"
-  show Rbp = "rbp"
-  show Rsp = "rsp"
+  show Rax = "%rax"
+  show Rbx = "%rbx"
+  show Rcx = "%rcx"
+  show Rdx = "%rdx"
+  show Rsi = "%rsi"
+  show Rdi = "%rdi"
+  show Rbp = "%rbp"
+  show Rsp = "%rsp"
 
 data Op
   = Imm Int
@@ -30,14 +30,10 @@ data Op
   deriving (Eq)
 
 instance Show Op where
-  show (Imm i) = show i
+  show (Imm i) = '$' : show i
   show (Reg r) = show r
-  show (Mem r offset) =
-    "["
-      ++ show r
-      ++ (if offset >= 0 then "+" else "")
-      ++ show offset
-      ++ "]"
+  show (Mem r 0) = "0(" ++ show r ++ ")"
+  show (Mem r offset) = show offset ++ "(" ++ show r ++ ")"
 
 data JmpCond
   = Jnz
@@ -85,20 +81,20 @@ data Inst
   deriving (Eq)
 
 instance Show Inst where
-  show Mov {src, dst} = "\tmov " ++ show dst ++ ", " ++ show src
-  show Add {src, dst} = "\tadd " ++ show dst ++ ", " ++ show src
-  show Sub {src, dst} = "\tsub " ++ show dst ++ ", " ++ show src
-  show Imul {src, dst} = "\timul " ++ show dst ++ ", " ++ show src
-  show Idiv {src} = "\tidiv " ++ show src
+  show Mov {src, dst} = "\tmovq " ++ show src ++ ", " ++ show dst
+  show Add {src, dst} = "\taddq " ++ show src ++ ", " ++ show dst
+  show Sub {src, dst} = "\tsubq " ++ show src ++ ", " ++ show dst
+  show Imul {src, dst} = "\timulq " ++ show src ++ ", " ++ show dst
+  show Idiv {src} = "\tidivq " ++ show src
   show Cqo = "\tcqo"
-  show And {src, dst} = "\tand " ++ show dst ++ ", " ++ show src
-  show Or {src, dst} = "\tor " ++ show dst ++ ", " ++ show src
-  show Xor {src, dst} = "\txor " ++ show dst ++ ", " ++ show src
-  show Neg {op} = "\tneg " ++ show op
-  show Not {op} = "\tnot " ++ show op
-  show Cmp {src, dst} = "\tcmp " ++ show dst ++ ", " ++ show src
-  show Push {op} = "\tpush " ++ show op
-  show Pop {op} = "\tpop " ++ show op
+  show And {src, dst} = "\tandq " ++ show src ++ ", " ++ show dst
+  show Or {src, dst} = "\torq " ++ show src ++ ", " ++ show dst
+  show Xor {src, dst} = "\txorq " ++ show src ++ ", " ++ show dst
+  show Neg {op} = "\tnegq " ++ show op
+  show Not {op} = "\tnotq " ++ show op
+  show Cmp {src, dst} = "\tcmpq " ++ show src ++ ", " ++ show dst
+  show Push {op} = "\tpushq " ++ show op
+  show Pop {op} = "\tpopq " ++ show op
   show Call {name} = "\tcall " ++ name
   show Ret = "\tret"
   show Jmp {label} = "\tjmp " ++ label

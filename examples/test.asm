@@ -1,129 +1,126 @@
-BITS 64
+.section .text
+.globl _start
 
-global _start
-
-section .text
-extern print_char
 
 _start:
-	mov rbp, rsp
-	sub rsp, 0
+	movq %rsp, %rbp
+	subq $0, %rsp
 main_entry:
-	push 6
+	pushq $6
 	call fact
-	pop rbx
-	push rax
+	popq %rbx
+	pushq %rax
 	call print_int
-	pop rbx
-	push 10
+	popq %rbx
+	pushq $10
 	call print_char
-	pop rbx
-	mov rax, 60
-	xor rdi, rdi
+	popq %rbx
+	movq $60, %rax
+	xorq %rdi, %rdi
 	syscall
 print_int:
-	push rbp
-	mov rbp, rsp
-	sub rsp, 8
+	pushq %rbp
+	movq %rsp, %rbp
+	subq $8, %rsp
 print_int_entry:
-	push 0
-	pop rax
-	mov [rbp-8], rax
-	mov rax, [rbp+16]
-	push rax
-	push 10
-	pop rbx
-	pop rax
-	cmp rax, rbx
+	pushq $0
+	popq %rax
+	movq %rax, -8(%rbp)
+	movq 16(%rbp), %rax
+	pushq %rax
+	pushq $10
+	popq %rbx
+	popq %rax
+	cmpq %rbx, %rax
 	jl if_then_0
 	jmp if_else_1
 if_then_0:
-	push 48
-	mov rax, [rbp+16]
-	push rax
-	pop rbx
-	pop rax
-	add rax, rbx
-	push rax
+	pushq $48
+	movq 16(%rbp), %rax
+	pushq %rax
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
 	call print_char
-	pop rbx
+	popq %rbx
 	jmp if_end_2
 if_else_1:
-	mov rax, [rbp+16]
-	push rax
-	push 10
-	pop rbx
-	pop rax
+	movq 16(%rbp), %rax
+	pushq %rax
+	pushq $10
+	popq %rbx
+	popq %rax
 	cqo
-	idiv rbx
-	push rax
+	idivq %rbx
+	pushq %rax
 	call print_int
-	pop rbx
-	mov rax, [rbp+16]
-	push rax
-	push 10
-	pop rbx
-	pop rax
+	popq %rbx
+	movq 16(%rbp), %rax
+	pushq %rax
+	pushq $10
+	popq %rbx
+	popq %rax
 	cqo
-	idiv rbx
-	push rdx
-	pop rax
-	mov [rbp-8], rax
-	push 48
-	mov rax, [rbp-8]
-	push rax
-	pop rbx
-	pop rax
-	add rax, rbx
-	push rax
+	idivq %rbx
+	pushq %rdx
+	popq %rax
+	movq %rax, -8(%rbp)
+	pushq $48
+	movq -8(%rbp), %rax
+	pushq %rax
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
 	call print_char
-	pop rbx
+	popq %rbx
 	jmp if_end_2
 if_end_2:
-	mov rsp, rbp
-	pop rbp
+	movq %rbp, %rsp
+	popq %rbp
 	ret
 fact:
-	push rbp
-	mov rbp, rsp
-	sub rsp, 0
+	pushq %rbp
+	movq %rsp, %rbp
+	subq $0, %rsp
 fact_entry:
-	mov rax, [rbp+16]
-	push rax
-	push 1
-	pop rbx
-	pop rax
-	cmp rax, rbx
+	movq 16(%rbp), %rax
+	pushq %rax
+	pushq $1
+	popq %rbx
+	popq %rax
+	cmpq %rbx, %rax
 	jle if_then_3
 	jmp if_end_4
 if_then_3:
-	push 1
-	pop rax
-	mov rsp, rbp
-	pop rbp
+	pushq $1
+	popq %rax
+	movq %rbp, %rsp
+	popq %rbp
 	ret
 	jmp if_end_4
 if_end_4:
-	mov rax, [rbp+16]
-	push rax
-	mov rax, [rbp+16]
-	push rax
-	push 1
-	pop rbx
-	pop rax
-	sub rax, rbx
-	push rax
+	movq 16(%rbp), %rax
+	pushq %rax
+	movq 16(%rbp), %rax
+	pushq %rax
+	pushq $1
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
 	call fact
-	pop rbx
-	push rax
-	pop rbx
-	pop rax
-	imul rax, rbx
-	push rax
-	pop rax
-	mov rsp, rbp
-	pop rbp
+	popq %rbx
+	pushq %rax
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	popq %rax
+	movq %rbp, %rsp
+	popq %rbp
 	ret
-	mov rsp, rbp
-	pop rbp
+	movq %rbp, %rsp
+	popq %rbp
 	ret

@@ -41,9 +41,8 @@ mainFunctionEpilogue =
 
 fileHeader :: [String] -> String
 fileHeader externs =
-  "BITS 64\n\n"
-    ++ "global _start\n\n"
-    ++ "section .text\n"
+  ".section .text\n"
+    ++ ".globl _start\n\n"
     ++ concatMap (\e -> "extern " ++ e ++ "\n") externs
 
 data TranslationState = TranslationState
@@ -261,7 +260,7 @@ translateProgram' Mir.Program {funs, externFuns, mainFun} = do
     ( \s ->
         s
           { fileHeader =
-              fileHeader ((\Mir.ExternFun {Mir.externId} -> externId) <$> externFuns)
+              fileHeader []
           }
     )
 
