@@ -182,8 +182,11 @@ translateInst inst
       popTempFromStack
       storeEaxToVar dstVar.id
       return ()
-  | Mir.Call {funId, ret} <- inst = do
+  | Mir.Call {funId, argCount, ret} <- inst = do
       emitAsmInst $ Call {name = funId}
+      -- Remove arguments from the stack
+      forM_ [1 .. argCount] $ \_ -> do
+        emitAsmInst Pop {op = Reg Rbx} -- Pop each argument from the stack
       case ret of
         Just {} -> do
           -- push the return value to the stack
@@ -223,7 +226,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
 
   -- local variables have negative offsets from rbp
   -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
-  let varOffsetList = zip locals (iterate' (+ (-8)) 0)
+  let varOffsetList = zip locals (iterate' (+ (-8)) (-8))
 
   let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
   modify (\s -> s {varOffsets})

@@ -35,7 +35,7 @@ instance Show Op where
   show (Mem r offset) =
     "["
       ++ show r
-      ++ (if offset >= 0 then "+" else "-")
+      ++ (if offset >= 0 then "+" else "")
       ++ show offset
       ++ "]"
 
