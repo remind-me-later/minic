@@ -2,6 +2,7 @@
 .globl _start
 
 .extern print_char
+.type print_char, @function
 
 _start:
 	movq %rsp, %rbp

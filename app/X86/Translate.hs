@@ -43,7 +43,15 @@ makeFileHeader :: [String] -> String
 makeFileHeader externs =
   ".section .text\n"
     ++ ".globl _start\n\n"
-    ++ concatMap (\e -> ".extern " ++ e ++ "\n") externs
+    ++ concatMap
+      ( \e ->
+          ".extern "
+            ++ e
+            ++ "\n.type "
+            ++ e
+            ++ ", @function\n"
+      )
+      externs
 
 data TranslationState = TranslationState
   { varOffsets :: Map Ast.Id Int,
