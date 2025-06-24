@@ -22,6 +22,6 @@ int fact(int n) {
 
 void main() {
     print_int(fact(6));
-    print_char(10);
+    print_char(10); // newline
 }
 
