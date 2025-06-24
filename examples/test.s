@@ -1,12 +1,13 @@
 .section .text
 .globl _start
 
+.extern print_char
 
 _start:
 	movq %rsp, %rbp
 	subq $0, %rsp
 main_entry:
-	pushq $6
+	pushq $5
 	call fact
 	popq %rbx
 	pushq %rax
@@ -83,39 +84,47 @@ if_end_2:
 fact:
 	pushq %rbp
 	movq %rsp, %rbp
-	subq $0, %rsp
+	subq $16, %rsp
 fact_entry:
+	pushq $1
+	popq %rax
+	movq %rax, -16(%rbp)
+	pushq $2
+	popq %rax
+	movq %rax, -8(%rbp)
+while_cond_3:
+	movq -8(%rbp), %rax
+	pushq %rax
 	movq 16(%rbp), %rax
 	pushq %rax
-	pushq $1
 	popq %rbx
 	popq %rax
 	cmpq %rbx, %rax
-	jle if_then_3
-	jmp if_end_4
-if_then_3:
-	pushq $1
-	popq %rax
-	movq %rbp, %rsp
-	popq %rbp
-	ret
-	jmp if_end_4
-if_end_4:
-	movq 16(%rbp), %rax
+	jle while_loop_4
+	jmp while_end_5
+while_loop_4:
+	movq -16(%rbp), %rax
 	pushq %rax
-	movq 16(%rbp), %rax
-	pushq %rax
-	pushq $1
-	popq %rbx
-	popq %rax
-	subq %rbx, %rax
-	pushq %rax
-	call fact
-	popq %rbx
+	movq -8(%rbp), %rax
 	pushq %rax
 	popq %rbx
 	popq %rax
 	imulq %rbx, %rax
+	pushq %rax
+	popq %rax
+	movq %rax, -16(%rbp)
+	movq -8(%rbp), %rax
+	pushq %rax
+	pushq $1
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
+	popq %rax
+	movq %rax, -8(%rbp)
+	jmp while_cond_3
+while_end_5:
+	movq -16(%rbp), %rax
 	pushq %rax
 	popq %rax
 	movq %rbp, %rsp

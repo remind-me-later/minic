@@ -39,11 +39,11 @@ mainFunctionEpilogue =
     Syscall -- exit the program
   ]
 
-fileHeader :: [String] -> String
-fileHeader externs =
+makeFileHeader :: [String] -> String
+makeFileHeader externs =
   ".section .text\n"
     ++ ".globl _start\n\n"
-    ++ concatMap (\e -> "extern " ++ e ++ "\n") externs
+    ++ concatMap (\e -> ".extern " ++ e ++ "\n") externs
 
 data TranslationState = TranslationState
   { varOffsets :: Map Ast.Id Int,
@@ -240,8 +240,8 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
 
   mapM_ emitAsmInst functionEpilogue
 
-tranlateMainFun :: Mir.Fun -> State TranslationState ()
-tranlateMainFun Mir.Fun {locals, blocks} = do
+translateMainFun :: Mir.Fun -> State TranslationState ()
+translateMainFun Mir.Fun {locals, blocks} = do
   let frameSize = length locals * 8
   mapM_ emitAsmInst (mainFunctionPrologue frameSize)
 
@@ -256,16 +256,10 @@ tranlateMainFun Mir.Fun {locals, blocks} = do
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {funs, externFuns, mainFun} = do
-  modify
-    ( \s ->
-        s
-          { fileHeader =
-              fileHeader []
-          }
-    )
+  modify (\s -> s {fileHeader = makeFileHeader ((.externId) <$> externFuns)})
 
   -- translate main function
-  forM_ mainFun tranlateMainFun
+  forM_ mainFun translateMainFun
   -- translate functions
   mapM_ translateFun funs
 

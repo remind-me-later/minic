@@ -13,15 +13,18 @@ void print_int(int n) {
 }
 
 int fact(int n) {
-    if (n <= 1) {
-        return 1;
+    int result = 1;
+    int i = 2;
+    while (i <= n) {
+        result = result * i;
+        i = i+1;    
     }
 
-    return n*fact(n-1);
+    return result;
 }
 
 void main() {
-    print_int(fact(6));
+    print_int(fact(5));
     print_char(10); // newline
 }
 
