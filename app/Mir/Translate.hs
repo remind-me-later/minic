@@ -7,7 +7,7 @@ where
 
 import Ast qualified
 import Control.Monad (foldM)
-import Control.Monad.State (State, gets, modify, runState)
+import Control.Monad.State (State, gets, modify', runState)
 import Env qualified
 import Mir.Types qualified as Mir
 import Prelude hiding (lookup)
@@ -56,44 +56,44 @@ transExp Ast.Exp {annot, exp}
         Just Env.Symbol {alloc} ->
           case alloc of
             Env.Local -> do
-              modify $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.Local {id}}]
+              modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.Local {id}}]
             Env.Argument ->
-              modify $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.Arg {id}}]
+              modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.Arg {id}}]
             _ -> error $ "Unexpected symbol alloc for variable: " ++ show alloc
         Nothing -> error $ "Undefined variable: " ++ id
   | Ast.NumberExp {num} <- exp = do
       t <- gets (.tmp)
-      modify $ addInstsToBlock [Mir.Assign {dst = t, srcOp = Mir.ConstInt num}]
+      modify' $ addInstsToBlock [Mir.Assign {dst = t, srcOp = Mir.ConstInt num}]
   | Ast.BinExp {left, op, right} <- exp = do
       transExp left
       lt <- gets (.tmp)
-      modify incTmp
+      modify' incTmp
       transExp right
       rt <- gets (.tmp)
-      modify incTmp
+      modify' incTmp
       tout <- gets (.tmp)
-      modify $ addInstsToBlock [Mir.BinOp {dst = tout, binop = op, left = lt, right = rt}]
+      modify' $ addInstsToBlock [Mir.BinOp {dst = tout, binop = op, left = lt, right = rt}]
   | Ast.UnaryExp {unop, exp} <- exp = do
       transExp exp
       t <- gets (.tmp)
-      modify incTmp
+      modify' incTmp
       tout <- gets (.tmp)
-      modify $ addInstsToBlock [Mir.UnaryOp {dst = tout, unop = unop, src = t}]
+      modify' $ addInstsToBlock [Mir.UnaryOp {dst = tout, unop = unop, src = t}]
   | Ast.Call {id, args} <- exp = do
       mapM_
         ( \arg -> do
             transExp arg
             t <- gets (.tmp)
-            modify incTmp
-            modify $ addInstsToBlock [Mir.Param {param = t}]
+            modify' incTmp
+            modify' $ addInstsToBlock [Mir.Param {param = t}]
         )
         args
       case annot of
         Ast.VoidTy -> do
-          modify $ addInstsToBlock [Mir.Call {ret = Nothing, funId = id, argCount = length args}]
+          modify' $ addInstsToBlock [Mir.Call {ret = Nothing, funId = id, argCount = length args}]
         _ -> do
           t <- gets (.tmp)
-          modify $ addInstsToBlock [Mir.Call {ret = Just t, funId = id, argCount = length args}]
+          modify' $ addInstsToBlock [Mir.Call {ret = Just t, funId = id, argCount = length args}]
 
 transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
@@ -102,97 +102,97 @@ transStmt stmt
   | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
       transExp exp
       t <- gets (.tmp)
-      modify incTmp
-      modify (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
+      modify' incTmp
+      modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
   | Ast.AssignStmt {id, exp} <- stmt = do
       transExp exp
       symb <- gets (lookup id)
       case symb of
         Just Env.Symbol {alloc = Env.Local} -> do
           t <- gets (.tmp)
-          modify incTmp
-          modify (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
+          modify' incTmp
+          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
         Just Env.Symbol {alloc = Env.Argument} -> do
           t <- gets (.tmp)
-          modify incTmp
-          modify (addInstsToBlock [Mir.Store {dstVar = Mir.Arg {id}, src = t}])
+          modify' incTmp
+          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Arg {id}, src = t}])
         _ -> error $ "Undefined variable: " ++ id
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
           transExp exp
           t <- gets (.tmp)
-          modify incTmp
-          modify (addInstsToBlock [Mir.Return {retVal = Just t}])
+          modify' incTmp
+          modify' (addInstsToBlock [Mir.Return {retVal = Just t}])
         Nothing -> do
-          modify (addInstsToBlock [Mir.Return {retVal = Nothing}])
+          modify' (addInstsToBlock [Mir.Return {retVal = Nothing}])
   | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
       l <- gets (.label)
-      modify incLabel
+      modify' incLabel
       let thenLabel = "if_then_" ++ show l
       transExp cond
 
       case elseBody of
         Just elseBody -> do
           l <- gets (.label)
-          modify incLabel
+          modify' incLabel
           let elseLabel = "if_else_" ++ show l
           l <- gets (.label)
-          modify incLabel
+          modify' incLabel
           let endLabel = "if_end_" ++ show l
 
           t <- gets (.tmp)
-          modify (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = elseLabel}])
+          modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = elseLabel}])
           _ <- transBlock thenLabel ifBody
-          modify (addInstsToBlock [Mir.Jump {target = endLabel}])
+          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
           _ <- transBlock elseLabel elseBody
-          modify (addInstsToBlock [Mir.Jump {target = endLabel}])
-          modify (pushBlock endLabel)
+          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
+          modify' (pushBlock endLabel)
         Nothing -> do
           l <- gets (.label)
-          modify incLabel
+          modify' incLabel
           let endLabel = "if_end_" ++ show l
 
           t <- gets (.tmp)
-          modify (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = endLabel}])
+          modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = endLabel}])
           _ <- transBlock thenLabel ifBody
-          modify (addInstsToBlock [Mir.Jump {target = endLabel}])
-          modify (pushBlock endLabel)
+          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
+          modify' (pushBlock endLabel)
   | Ast.WhileStmt {cond, body} <- stmt = do
       l <- gets (.label)
-      modify incLabel
+      modify' incLabel
       let condLabel = "while_cond_" ++ show l
       l <- gets (.label)
-      modify incLabel
+      modify' incLabel
       let loopLabel = "while_loop_" ++ show l
       l <- gets (.label)
-      modify incLabel
+      modify' incLabel
       let endLabel = "while_end_" ++ show l
-      modify incLabel
+      modify' incLabel
 
-      modify (pushBlock condLabel)
+      modify' (pushBlock condLabel)
       transExp cond
       t <- gets (.tmp)
-      modify (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = loopLabel, falseLabel = endLabel}])
+      modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = loopLabel, falseLabel = endLabel}])
 
       _ <- transBlock loopLabel body
-      modify (addInstsToBlock [Mir.Jump {target = condLabel}])
+      modify' (addInstsToBlock [Mir.Jump {target = condLabel}])
 
-      modify (pushBlock endLabel)
+      modify' (pushBlock endLabel)
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
 transBlock label Ast.Block {annot = scope, stmts} = do
-  modify (pushBlock label)
-  modify (stackEnv scope)
+  modify' (pushBlock label)
+  modify' (stackEnv scope)
   mapM_ transStmt stmts
-  modify popEnv
+  modify' popEnv
 
 transFun :: Ast.TypedFun -> State TranslationState Mir.Fun
 transFun Ast.Fun {id, args, body} = do
   let entryLabel = id ++ "_entry"
   _ <- transBlock entryLabel body
   blocks <- gets (.blocks)
-  modify popBlocks
+  modify' popBlocks
   let args' = (.id) <$> args
   let Ast.Block {annot} = body
   -- remove parameters from locals

@@ -30,7 +30,7 @@ import Ast.Types
     VarDef (..),
   )
 import Control.Monad (when)
-import Control.Monad.State (State, gets, modify, runState)
+import Control.Monad.State (State, gets, modify', runState)
 import Data.Functor ((<&>))
 import Env qualified
 import Prelude hiding (lookup)
@@ -94,7 +94,7 @@ typeBinOp op Exp {annot = lty} Exp {annot = rty}
         LessThanOrEqual -> return BoolTy
         GreaterThanOrEqual -> return BoolTy
         _ -> do
-          modify (addError ("Unsupported operator for IntTy: " ++ show op))
+          modify' (addError ("Unsupported operator for IntTy: " ++ show op))
           return VoidTy
   | (lty, rty) == (BoolTy, BoolTy) =
       case op of
@@ -104,10 +104,10 @@ typeBinOp op Exp {annot = lty} Exp {annot = rty}
         Equal -> return BoolTy
         NotEqual -> return BoolTy
         _ -> do
-          modify (addError ("Unsupported operator for BoolTy: " ++ show op))
+          modify' (addError ("Unsupported operator for BoolTy: " ++ show op))
           return VoidTy
   | otherwise = do
-      modify (addError ("Type mismatch in operator: " ++ show lty ++ " " ++ show op ++ " " ++ show rty))
+      modify' (addError ("Type mismatch in operator: " ++ show lty ++ " " ++ show op ++ " " ++ show rty))
       return VoidTy
 
 typeUnaryOp :: UnaryOp -> TypedExp -> State TypingState Ty
@@ -116,16 +116,16 @@ typeUnaryOp op Exp {annot}
       case op of
         UnarySub -> return IntTy
         _ -> do
-          modify (addError ("Unsupported unary operator for IntTy: " ++ show op))
+          modify' (addError ("Unsupported unary operator for IntTy: " ++ show op))
           return VoidTy
   | annot == BoolTy =
       case op of
         UnaryNot -> return BoolTy
         _ -> do
-          modify (addError ("Unsupported unary operator for BoolTy: " ++ show op))
+          modify' (addError ("Unsupported unary operator for BoolTy: " ++ show op))
           return VoidTy
   | otherwise = do
-      modify (addError ("Type mismatch in unary operator: " ++ show annot ++ " " ++ show op))
+      modify' (addError ("Type mismatch in unary operator: " ++ show annot ++ " " ++ show op))
       return VoidTy
 
 typeExp :: RawExp -> State TypingState TypedExp
@@ -134,12 +134,12 @@ typeExp Exp {exp}
       symb <- gets (lookup id)
       case symb of
         Just Env.Symbol {ty = FunTy {retty}} -> do
-          modify (addError ("Cannot use function " ++ id ++ " as variable"))
+          modify' (addError ("Cannot use function " ++ id ++ " as variable"))
           return Exp {annot = retty, exp = IdExp {id}}
         Just Env.Symbol {ty} ->
           return Exp {annot = ty, exp = IdExp {id}}
         Nothing -> do
-          modify (addError ("Undefined variable: " ++ id))
+          modify' (addError ("Undefined variable: " ++ id))
           return Exp {annot = VoidTy, exp = IdExp {id}}
   | NumberExp {num} <- exp =
       return Exp {annot = IntTy, exp = NumberExp {num}}
@@ -160,7 +160,7 @@ typeExp Exp {exp}
         Just Env.Symbol {ty = FunTy {args = funargs, retty}} -> do
           let argtys' = (.annot) <$> callargs
           when (argtys' /= funargs) $
-            modify
+            modify'
               ( addError
                   ( "Argument type mismatch for function "
                       ++ id
@@ -177,10 +177,10 @@ typeExp Exp {exp}
 
           return Exp {annot = retty, exp = Call {id, args = callargs}}
         Just Env.Symbol {ty} -> do
-          modify (addError ("Cannot call variable: " ++ id ++ " of type: " ++ show ty))
+          modify' (addError ("Cannot call variable: " ++ id ++ " of type: " ++ show ty))
           return Exp {annot = VoidTy, exp = Call {id, args = callargs}}
         Nothing -> do
-          modify (addError ("Undefined function: " ++ id))
+          modify' (addError ("Undefined function: " ++ id))
           return Exp {annot = VoidTy, exp = Call {id, args = callargs}}
 
 typeStmt :: RawStmt -> State TypingState TypedStmt
@@ -189,9 +189,9 @@ typeStmt stmt
       exp <- typeExp exp
 
       when (exp.annot /= vardef.ty) $
-        modify (addError ("Type mismatch in variable definition: expected " ++ show vardef.ty ++ ", got " ++ show exp.annot))
+        modify' (addError ("Type mismatch in variable definition: expected " ++ show vardef.ty ++ ", got " ++ show exp.annot))
 
-      modify $ insertVar vardef
+      modify' $ insertVar vardef
       return LetStmt {vardef, exp}
   | AssignStmt {id, exp} <- stmt = do
       symb <- gets (lookup id)
@@ -199,12 +199,12 @@ typeStmt stmt
 
       case symb of
         Just Env.Symbol {ty = FunTy {}} -> do
-          modify (addError ("Cannot assign to function: " ++ id))
+          modify' (addError ("Cannot assign to function: " ++ id))
         Just Env.Symbol {ty} -> do
           when (exp.annot /= ty) $
-            modify (addError ("Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show exp.annot))
+            modify' (addError ("Type mismatch in assignment: expected " ++ show ty ++ ", got " ++ show exp.annot))
         Nothing -> do
-          modify (addError ("Undefined variable: " ++ id))
+          modify' (addError ("Undefined variable: " ++ id))
 
       return AssignStmt {id, exp}
   | ExpStmt {exp} <- stmt = do
@@ -220,18 +220,18 @@ typeStmt stmt
 
       case curfun of
         Just Env.Symbol {ty = FunTy {retty}} ->
-          when (retty /= expty) $ modify (addError ("Return type mismatch: expected " ++ show retty ++ ", got " ++ show expty))
+          when (retty /= expty) $ modify' (addError ("Return type mismatch: expected " ++ show retty ++ ", got " ++ show expty))
         Just _ ->
-          modify (addError "Cannot return from a variable")
+          modify' (addError "Cannot return from a variable")
         Nothing ->
-          modify (addError "Unreachable: undefined function")
+          modify' (addError "Unreachable: undefined function")
 
       return ret
   | IfStmt {cond, ifBody, elseBody} <- stmt = do
       cond <- typeExp cond
 
       when (cond.annot /= BoolTy) $
-        modify (addError ("Condition in if statement must be of type BoolTy, got " ++ show cond.annot))
+        modify' (addError ("Condition in if statement must be of type BoolTy, got " ++ show cond.annot))
 
       ifBody <- typeBlock ifBody
       elseBody <- case elseBody of
@@ -245,27 +245,27 @@ typeStmt stmt
       cond <- typeExp cond
 
       when (cond.annot /= BoolTy) $
-        modify (addError ("Condition in while statement must be of type BoolTy, got " ++ show cond.annot))
+        modify' (addError ("Condition in while statement must be of type BoolTy, got " ++ show cond.annot))
 
       body <- typeBlock body
       return WhileStmt {cond, body}
 
 typeBlock :: RawBlock -> State TypingState TypedBlock
 typeBlock Block {stmts} = do
-  modify (pushEnv (Env.emptyEnv "block"))
+  modify' (pushEnv (Env.emptyEnv "block"))
   annotatedStmts <- mapM typeStmt stmts
   scope <- gets peekEnv
-  modify popEnv
+  modify' popEnv
   return Block {annot = scope, stmts = annotatedStmts}
 
 typeFun :: RawFun -> State TypingState TypedFun
 typeFun Fun {id, args, retty, body = Block {stmts}} = do
-  modify (pushEnv $ Env.emptyEnv id)
-  mapM_ (modify . insertArg) args
-  modify (setCurrentFun id)
+  modify' (pushEnv $ Env.emptyEnv id)
+  mapM_ (modify' . insertArg) args
+  modify' (setCurrentFun id)
   annotatedStmts <- mapM typeStmt stmts
   env <- gets peekEnv
-  modify popEnv
+  modify' popEnv
   return Fun {id, args, retty, body = Block {annot = env, stmts = annotatedStmts}}
 
 -- | No typing is performed for external functions since their types are assumed to be correct.

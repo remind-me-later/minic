@@ -4,7 +4,7 @@ module X86.Translate where
 
 import Ast.Types qualified as Ast
 import Control.Monad (forM_)
-import Control.Monad.State (State, gets, modify, runState)
+import Control.Monad.State (State, gets, modify', runState)
 import Data.List (iterate')
 import Data.Map (Map, empty, fromList, lookup)
 import Mir.Types qualified as Mir
@@ -64,10 +64,10 @@ instance Show TranslationState where
   show ts = ts.fileHeader ++ "\n" ++ unlines (show <$> ts.assemblyCode)
 
 changeFlagOp :: JmpCond -> State TranslationState ()
-changeFlagOp cond = modify (\s -> s {lastJmpCond = Just cond})
+changeFlagOp cond = modify' (\s -> s {lastJmpCond = Just cond})
 
 emitAsmInst :: Inst -> State TranslationState ()
-emitAsmInst code = modify (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
+emitAsmInst code = modify' (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
 
 -- Offset from rbp (base pointer) for local variables
 -- All variables are QWORDS and aligned
@@ -242,7 +242,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
   let varOffsetList = zip locals (iterate' (+ (-8)) (-8))
 
   let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
-  modify (\s -> s {varOffsets})
+  modify' (\s -> s {varOffsets})
 
   mapM_ translateBasicBlock (reverse blocks)
 
@@ -256,7 +256,7 @@ translateMainFun Mir.Fun {locals, blocks} = do
   -- here 0 is the first local variable, -8 is the second, etc.
   let varOffsetList = zip locals (iterate (+ (-8)) 0)
   let varOffsets = Data.Map.fromList varOffsetList
-  modify (\s -> s {varOffsets})
+  modify' (\s -> s {varOffsets})
 
   mapM_ translateBasicBlock (reverse blocks)
 
@@ -264,7 +264,7 @@ translateMainFun Mir.Fun {locals, blocks} = do
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {funs, externFuns, mainFun} = do
-  modify (\s -> s {fileHeader = makeFileHeader ((.externId) <$> externFuns)})
+  modify' (\s -> s {fileHeader = makeFileHeader ((.externId) <$> externFuns)})
 
   -- translate main function
   forM_ mainFun translateMainFun
