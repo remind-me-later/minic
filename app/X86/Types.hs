@@ -26,14 +26,19 @@ instance Show Reg where
 data Op
   = Imm Int
   | Reg Reg
-  | Mem Reg Int
+  | Mem
+      { base :: Reg,
+        offset :: Int,
+        mult :: Int
+      }
   deriving (Eq)
 
 instance Show Op where
   show (Imm i) = '$' : show i
   show (Reg r) = show r
-  show (Mem r 0) = "0(" ++ show r ++ ")"
-  show (Mem r offset) = show offset ++ "(" ++ show r ++ ")"
+  show Mem {base, offset = 0, mult = 1} = "(" ++ show base ++ ")"
+  show Mem {base, offset, mult = 1} = show offset ++ "(" ++ show base ++ ")"
+  show Mem {base, offset, mult} = show offset ++ "(" ++ show base ++ ", " ++ show mult ++ ")"
 
 data JmpCond
   = Jnz

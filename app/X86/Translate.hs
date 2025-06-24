@@ -73,7 +73,7 @@ loadVarToEax varId = do
     Just offset ->
       emitAsmInst $
         Mov
-          { src = Mem Rbp offset,
+          { src = Mem {base = Rbp, offset, mult = 1},
             dst = Reg Rax
           }
     Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
@@ -86,7 +86,7 @@ storeEaxToVar varId = do
       emitAsmInst $
         Mov
           { src = Reg Rax,
-            dst = Mem Rbp offset
+            dst = Mem {base = Rbp, offset, mult = 1}
           }
     Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
 

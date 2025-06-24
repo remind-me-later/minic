@@ -3,7 +3,7 @@
 
 all: test.exe
 
-%.o: %.asm
+%.o: %.s
 	as --64 -o $@ $<
 
 test.exe: print_char.o test.o

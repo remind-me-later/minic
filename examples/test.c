@@ -1,13 +1,8 @@
 extern void print_char(int c);
 
-void main() {
-    print_int(fact(6));
-    print_char(10);
-}
-
 // This function prints an integer to the console.
 void print_int(int n) {
-    int i= 0;
+    int i = 0;
     if (n < 10) {
         print_char(48+n);
     } else {
@@ -24,3 +19,9 @@ int fact(int n) {
 
     return n*fact(n-1);
 }
+
+void main() {
+    print_int(fact(6));
+    print_char(10);
+}
+

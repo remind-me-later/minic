@@ -3,6 +3,7 @@
 
 .section .text
     .globl print_char
+    .type print_char, @function
 
 print_char:
     # Input: character to print is passed in stack
