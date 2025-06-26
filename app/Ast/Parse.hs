@@ -3,25 +3,6 @@
 module Ast.Parse (program) where
 
 import Ast.Types
-  ( BinOp (..),
-    Block (..),
-    Exp (..),
-    ExpInner (..),
-    ExternFun (..),
-    Fun (..),
-    Id,
-    Program (..),
-    RawBlock,
-    RawExp,
-    RawExternFun,
-    RawFun,
-    RawProgram,
-    RawStmt,
-    Stmt (..),
-    Ty (..),
-    UnaryOp (..),
-    VarDef (..),
-  )
 import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
@@ -64,6 +45,9 @@ symbol sym = lex (PC.string sym)
 parens :: PC.Parser a -> PC.Parser a
 parens p = symbol "(" *> p <* symbol ")"
 
+brackets :: PC.Parser a -> PC.Parser a
+brackets p = symbol "[" *> p <* symbol "]"
+
 braces :: PC.Parser a -> PC.Parser a
 braces p = symbol "{" *> p <* symbol "}"
 
@@ -93,9 +77,10 @@ exp = eqexp
   where
     factor =
       PC.try callexp
+        <|> PC.try arraccess
         <|> PC.try idexp
         <|> PC.try parenexp
-        <|> PC.try numexp
+        <|> numexp
       where
         numexp = do
           num <- num
@@ -108,6 +93,10 @@ exp = eqexp
           id <- id
           args <- parens (commaSep exp)
           return Exp {annot = (), exp = Call {id, args}}
+        arraccess = do
+          id <- id
+          index <- brackets exp
+          return Exp {annot = (), exp = ArrAccess {id, index}}
 
     unaryexp = do
       op <- optional $ PC.try (symbol "-" $> UnarySub) <|> (symbol "!" $> UnaryNot)
@@ -171,10 +160,12 @@ vardef = do
 stmt :: PC.Parser RawStmt
 stmt =
   PC.try letstmt
+    <|> PC.try letarrstmt
     <|> PC.try retstmt
     <|> PC.try ifstmt
     <|> PC.try whilestmt
     <|> PC.try assignstmt
+    <|> PC.try assignarrstmt
     <|> expstmt
   where
     letstmt = do
@@ -184,12 +175,28 @@ stmt =
       _ <- symbol ";"
       return $ LetStmt {vardef, exp}
 
+    letarrstmt = do
+      vardef <- vardef
+      size <- brackets num
+      _ <- symbol "="
+      elems <- braces (commaSep exp)
+      _ <- symbol ";"
+      return $ LetArrStmt {vardef, size, elems}
+
     assignstmt = do
       id <- id
       _ <- symbol "="
       exp <- exp
       _ <- symbol ";"
       return $ AssignStmt {id, exp}
+
+    assignarrstmt = do
+      id <- id
+      index <- brackets exp
+      _ <- symbol "="
+      exp <- exp
+      _ <- symbol ";"
+      return $ AssignArrStmt {id, index, exp}
 
     retstmt = do
       _ <- returnkw

@@ -24,6 +24,8 @@ int fact(int n) {
 }
 
 void main() {
+    int arr[3] = {1, 2, 3};
+    arr[0] = 10;
     print_int(fact(5));
     print_char(10); // newline
 }

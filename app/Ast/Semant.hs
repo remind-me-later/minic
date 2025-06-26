@@ -11,24 +11,6 @@ module Ast.Semant
 where
 
 import Ast.Types
-  ( BinOp (..),
-    Block (..),
-    Exp (..),
-    ExpInner (..),
-    ExternFun (..),
-    Fun (..),
-    Id,
-    Program (..),
-    RawBlock,
-    RawExp,
-    RawFun,
-    RawProgram,
-    RawStmt,
-    Stmt (..),
-    Ty (..),
-    UnaryOp (..),
-    VarDef (..),
-  )
 import Control.Monad (when)
 import Control.Monad.State (State, gets, modify', runState)
 import Data.Functor ((<&>))
@@ -182,6 +164,20 @@ typeExp Exp {exp}
         Nothing -> do
           modify' (addError ("Undefined function: " ++ id))
           return Exp {annot = VoidTy, exp = Call {id, args = callargs}}
+  | ArrAccess {id, index} <- exp = do
+      symb <- gets (lookup id)
+      index <- typeExp index
+      case symb of
+        Just Env.Symbol {ty = ArrTy {elemTy}} -> do
+          when (index.annot /= IntTy) $
+            modify' (addError ("Array index must be of type IntTy, got " ++ show index.annot))
+          return Exp {annot = elemTy, exp = ArrAccess {id, index}}
+        Just Env.Symbol {ty} -> do
+          modify' (addError ("Cannot access array element of variable: " ++ id ++ " of type: " ++ show ty))
+          return Exp {annot = VoidTy, exp = ArrAccess {id, index}}
+        Nothing -> do
+          modify' (addError ("Undefined variable: " ++ id))
+          return Exp {annot = VoidTy, exp = ArrAccess {id, index}}
 
 typeStmt :: RawStmt -> State TypingState TypedStmt
 typeStmt stmt
@@ -193,6 +189,39 @@ typeStmt stmt
 
       modify' $ insertVar vardef
       return LetStmt {vardef, exp}
+  | LetArrStmt {vardef, size, elems} <- stmt = do
+      elems <- mapM typeExp elems
+
+      when (size <= 0) $
+        modify' (addError ("Array size must be greater than 0, got: " ++ show size))
+
+      let elemTypes = map (.annot) elems
+      when (any (/= vardef.ty) elemTypes) $
+        modify' (addError ("Type mismatch in array elements: expected " ++ show vardef.ty ++ ", got " ++ show elemTypes))
+
+      let arrDef = vardef {ty = ArrTy {elemTy = vardef.ty, size}}
+
+      when (size /= length elems) $
+        modify' (addError ("Array size mismatch: expected " ++ show size ++ ", got " ++ show (length elems)))
+
+      modify' $ insertVar arrDef
+      return LetArrStmt {vardef, size, elems}
+  | AssignArrStmt {id, index, exp} <- stmt = do
+      symb <- gets (lookup id)
+      index <- typeExp index
+      exp <- typeExp exp
+      case symb of
+        Just Env.Symbol {ty = ArrTy {elemTy}} -> do
+          when (index.annot /= IntTy) $
+            modify' (addError ("Array index must be of type IntTy, got " ++ show index.annot))
+
+          when (exp.annot /= elemTy) $
+            modify' (addError ("Type mismatch in array assignment: expected " ++ show elemTy ++ ", got " ++ show exp.annot))
+        Just Env.Symbol {ty} -> do
+          modify' (addError ("Cannot assign to non-array variable: " ++ id ++ " of type: " ++ show ty))
+        Nothing -> do
+          modify' (addError ("Undefined variable: " ++ id))
+      return AssignArrStmt {id, index, exp}
   | AssignStmt {id, exp} <- stmt = do
       symb <- gets (lookup id)
       exp <- typeExp exp

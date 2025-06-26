@@ -6,7 +6,7 @@ module Mir.Translate
 where
 
 import Ast qualified
-import Control.Monad (foldM)
+import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, gets, modify', runState)
 import Env qualified
 import Mir.Types qualified as Mir
@@ -94,6 +94,19 @@ transExp Ast.Exp {annot, exp}
         _ -> do
           t <- gets (.tmp)
           modify' $ addInstsToBlock [Mir.Call {ret = Just t, funId = id, argCount = length args}]
+  | Ast.ArrAccess {id, index} <- exp = do
+      transExp index
+      tIndex <- gets $ Mir.ConstInt . (.tmp)
+      modify' incTmp
+      symb <- gets (lookup id)
+      case symb of
+        Just Env.Symbol {alloc = Env.Local} -> do
+          t <- gets (.tmp)
+          modify' incTmp
+          modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.LocalArr {id, offset = tIndex}}]
+        Just Env.Symbol {alloc = Env.Argument} -> do
+          error "Array access on argument is not supported"
+        _ -> error $ "Undefined array: " ++ id
 
 transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
@@ -117,6 +130,34 @@ transStmt stmt
           modify' incTmp
           modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Arg {id}, src = t}])
         _ -> error $ "Undefined variable: " ++ id
+  | Ast.LetArrStmt {vardef = Ast.VarDef {id}, elems} <- stmt = do
+      -- Store all the elements in the initializer in the array
+      -- SInce the array is allocated on the stack, we can use the temporary
+      -- registers to store the elements
+      foldM_
+        ( \idx elem -> do
+            transExp elem
+            tElem <- gets (.tmp)
+            modify' incTmp
+            modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset = Mir.ConstInt idx}, src = tElem}])
+            return (idx + 1)
+        )
+        0
+        elems
+  | Ast.AssignArrStmt {id, index, exp} <- stmt = do
+      transExp index
+      tIndex <- gets $ Mir.ConstInt . (.tmp)
+      modify' incTmp
+      transExp exp
+      tExp <- gets (.tmp)
+      modify' incTmp
+      symb <- gets (lookup id)
+      case symb of
+        Just Env.Symbol {alloc = Env.Local} -> do
+          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset = tIndex}, src = tExp}])
+        Just Env.Symbol {alloc = Env.Argument} -> do
+          error "Assigning to an array argument is not supported"
+        _ -> error $ "Undefined array: " ++ id
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 module Ast.Types where
 
 type Id = String
@@ -9,6 +11,10 @@ data Ty
   | FunTy
       { args :: [Ty],
         retty :: Ty
+      }
+  | ArrTy
+      { elemTy :: Ty,
+        size :: Int
       }
   deriving (Show, Eq)
 
@@ -83,7 +89,19 @@ data ExpInner ea
       { id :: Id,
         args :: [Exp ea]
       }
-  deriving (Show, Eq)
+  | ArrAccess
+      { id :: Id,
+        index :: Exp ea
+      }
+  deriving (Eq)
+
+instance (Show ea) => Show (ExpInner ea) where
+  show (BinExp left op right) = "(" ++ show left ++ " " ++ show op ++ " " ++ show right ++ ")"
+  show (UnaryExp unop exp) = show unop ++ show exp
+  show (NumberExp num) = show num
+  show (IdExp id) = id
+  show (Call id args) = id ++ "(" ++ unwords (map show args)
+  show (ArrAccess id index) = id ++ "[" ++ show index ++ "]"
 
 data VarDef = VarDef
   { id :: Id,
@@ -97,8 +115,18 @@ data Stmt ea ba
       { vardef :: VarDef,
         exp :: Exp ea
       }
+  | LetArrStmt
+      { vardef :: VarDef,
+        size :: Int,
+        elems :: [Exp ea]
+      }
   | AssignStmt
       { id :: Id,
+        exp :: Exp ea
+      }
+  | AssignArrStmt
+      { id :: Id,
+        index :: Exp ea,
         exp :: Exp ea
       }
   | ReturnStmt

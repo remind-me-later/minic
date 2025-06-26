@@ -21,12 +21,14 @@ type Label = String
 
 data Var
   = Local {id :: Ast.Id}
+  | LocalArr {id :: Ast.Id, offset :: Operand}
   | Arg {id :: Ast.Id}
   deriving (Eq)
 
 instance Show Var where
   show (Local id) = "local " ++ id
   show (Arg id) = "arg " ++ id
+  show (LocalArr id offset) = "local " ++ id ++ "[" ++ show offset ++ "]"
 
 data Operand
   = ConstInt Int
