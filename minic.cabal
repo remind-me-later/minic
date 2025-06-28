@@ -73,6 +73,7 @@ executable minic
                     X86
                     X86.Translate
                     X86.Types
+                    TypeSystem
 
     -- LANGUAGE extensions used by modules in this package.
     default-extensions: DuplicateRecordFields,

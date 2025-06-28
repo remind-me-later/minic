@@ -13,17 +13,17 @@ module Mir.Types
   )
 where
 
-import Ast qualified
-import qualified Env
+import Env qualified
+import TypeSystem
 
 type Temp = Int
 
 type Label = String
 
 data Var
-  = Local {id :: Ast.Id}
-  | LocalArr {id :: Ast.Id, offset :: Operand}
-  | Arg {id :: Ast.Id}
+  = Local {id :: Id}
+  | LocalArr {id :: Id, offset :: Operand}
+  | Arg {id :: Id}
   deriving (Eq)
 
 instance Show Var where
@@ -42,11 +42,11 @@ instance Show Operand where
 
 data Inst
   = Assign {dst :: Temp, srcOp :: Operand}
-  | UnaryOp {dst :: Temp, unop :: Ast.UnaryOp, src :: Temp}
-  | BinOp {dst :: Temp, binop :: Ast.BinOp, left :: Temp, right :: Temp}
+  | UnaryOp {dst :: Temp, unop :: UnaryOp, src :: Temp}
+  | BinOp {dst :: Temp, binop :: BinOp, left :: Temp, right :: Temp}
   | Load {dst :: Temp, srcVar :: Var}
   | Store {dstVar :: Var, src :: Temp}
-  | Call {ret :: Maybe Temp, funId :: Ast.Id, argCount :: Int}
+  | Call {ret :: Maybe Temp, funId :: Id, argCount :: Int}
   | Param {param :: Temp}
   | Return {retVal :: Maybe Temp}
   | Jump {target :: Label}
@@ -84,7 +84,7 @@ instance Show BasicBlock where
     label ++ ":\n" ++ unlines (("  " ++) . show <$> instructions)
 
 data Fun = Fun
-  { id :: Ast.Id,
+  { id :: Id,
     args :: [Env.Symbol],
     locals :: [Env.Symbol],
     entryLabel :: Label,
@@ -110,7 +110,7 @@ instance Show Fun where
       ++ unlines (reverse $ show <$> blocks)
 
 newtype ExternFun = ExternFun
-  { externId :: Ast.Id
+  { externId :: Id
   }
   deriving (Eq)
 

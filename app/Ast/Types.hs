@@ -2,73 +2,7 @@
 
 module Ast.Types where
 
-type Id = String
-
-data Ty
-  = IntTy
-  | BoolTy
-  | VoidTy
-  | FunTy
-      { args :: [Ty],
-        retty :: Ty
-      }
-  | ArrTy
-      { elemTy :: Ty,
-        size :: Int
-      }
-  deriving (Show, Eq)
-
-tySize :: Ty -> Int
-tySize IntTy = 8
-tySize BoolTy = 8
-tySize VoidTy = 0
-tySize (FunTy {args}) = sum (map tySize args)
-tySize (ArrTy {elemTy, size}) = tySize elemTy * size
-
-data BinOp
-  = -- Arithmetic
-    Add
-  | Sub
-  | Mul
-  | Div
-  | Mod
-  | -- Logical
-    And
-  | Or
-  | Xor
-  | -- Comparison
-    Equal
-  | LessThan
-  | GreaterThan
-  | LessThanOrEqual
-  | GreaterThanOrEqual
-  | NotEqual
-  deriving (Eq)
-
-instance Show BinOp where
-  show Add = "+"
-  show Sub = "-"
-  show Mul = "*"
-  show Div = "/"
-  show Equal = "=="
-  show LessThan = "<"
-  show GreaterThan = ">"
-  show LessThanOrEqual = "<="
-  show GreaterThanOrEqual = ">="
-  show NotEqual = "!="
-  show And = "&&"
-  show Or = "||"
-  show Xor = "^"
-  show Mod = "%"
-
-data UnaryOp
-  = UnarySub
-  | UnaryNot
-  deriving (Eq)
-
-instance Show UnaryOp where
-  show UnarySub = "-"
-  show UnaryNot = "!"
+import TypeSystem
 
 data Exp ea = Exp
   { annot :: ea,

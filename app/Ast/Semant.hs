@@ -15,6 +15,7 @@ import Control.Monad (when)
 import Control.Monad.State (State, gets, modify', runState)
 import Data.Functor ((<&>))
 import Env qualified
+import TypeSystem
 import Prelude hiding (lookup)
 
 type TypedExp = Exp Ty

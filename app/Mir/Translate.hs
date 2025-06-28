@@ -10,6 +10,7 @@ import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, gets, modify', runState)
 import Env qualified
 import Mir.Types qualified as Mir
+import TypeSystem (BinOp (..), Id, Ty (..), sizeOf)
 import Prelude hiding (lookup)
 
 data TranslationState = TranslationState
@@ -44,7 +45,7 @@ stackEnv env ts = ts {envs = Env.pushEnv env ts.envs}
 popEnv :: TranslationState -> TranslationState
 popEnv ts = ts {envs = Env.popEnv ts.envs}
 
-lookup :: Ast.Id -> TranslationState -> Maybe Env.Symbol
+lookup :: Id -> TranslationState -> Maybe Env.Symbol
 lookup id ts = Env.lookup id ts.envs
 
 transExp :: Ast.TypedExp -> State TranslationState ()
@@ -89,7 +90,7 @@ transExp Ast.Exp {annot, exp}
         )
         args
       case annot of
-        Ast.VoidTy -> do
+        VoidTy -> do
           modify' $ addInstsToBlock [Mir.Call {ret = Nothing, funId = id, argCount = length args}]
         _ -> do
           t <- gets (.tmp)
@@ -103,21 +104,21 @@ transExp Ast.Exp {annot, exp}
           modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar = Mir.LocalArr {id, offset}}]
         _ -> error "Unexpected array access result"
 
-arrayAccess :: Ast.Id -> Mir.Temp -> State TranslationState Mir.Var
+arrayAccess :: Id -> Mir.Temp -> State TranslationState Mir.Var
 arrayAccess id idxtemp = do
   symb <- gets (lookup id)
   case symb of
-    Just Env.Symbol {alloc = Env.Local, ty = Ast.ArrTy {elemTy}} -> do
+    Just Env.Symbol {alloc = Env.Local, ty = ArrTy {elemTy}} -> do
       -- multiply the index by the size of the element
       multt <- gets (.tmp)
       modify' incTmp
 
       modify'
         ( addInstsToBlock
-            [ Mir.Assign {dst = multt, srcOp = Mir.ConstInt (-Ast.tySize elemTy)},
+            [ Mir.Assign {dst = multt, srcOp = Mir.ConstInt (-sizeOf elemTy)},
               Mir.BinOp
                 { dst = multt,
-                  binop = Ast.Mul,
+                  binop = Mul,
                   left = idxtemp,
                   right = multt
                 }

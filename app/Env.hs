@@ -23,9 +23,10 @@ module Env
   )
 where
 
-import Ast.Types (ExternFun (..), Fun (..), Id, Ty (..), VarDef (..))
+import Ast.Types (ExternFun (..), Fun (..), VarDef (..))
 import Control.Applicative (Alternative (empty))
 import Data.Map qualified as Map
+import TypeSystem (Id, Ty (..))
 import Prelude hiding (lookup)
 
 data SymbolAlloc

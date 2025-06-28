@@ -2,13 +2,13 @@
 
 module X86.Translate where
 
-import Ast.Types (tySize)
-import Ast.Types qualified as Ast
 import Control.Monad (forM_)
 import Control.Monad.State (State, gets, modify', runState)
 import Data.Map (Map, empty, fromList, lookup)
 import Env
 import Mir.Types qualified as Mir
+import TypeSystem (Id, sizeOf)
+import TypeSystem qualified (BinOp (..), UnaryOp (..))
 import X86.Types
 
 functionPrologue :: String -> Int -> [Inst]
@@ -55,7 +55,7 @@ makeFileHeader externs =
       externs
 
 data TranslationState = TranslationState
-  { varOffsets :: Map Ast.Id Int,
+  { varOffsets :: Map Id Int,
     assemblyCode :: [Inst],
     lastJmpCond :: Maybe JmpCond,
     fileHeader :: String
@@ -72,7 +72,7 @@ emitAsmInst code = modify' (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
 
 -- Offset from rbp (base pointer) for local variables
 -- All variables are QWORDS and aligned
-getVarOffset :: Ast.Id -> State TranslationState (Maybe Int)
+getVarOffset :: Id -> State TranslationState (Maybe Int)
 getVarOffset varId = gets (Data.Map.lookup varId . (.varOffsets))
 
 loadVarToEax :: Mir.Var -> State TranslationState ()
@@ -191,54 +191,54 @@ translateInst inst
       emitAsmInst Pop {op = Reg Rbx} -- Pop the second operand into rbx
       emitAsmInst Pop {op = Reg Rax} -- Pop the first operand into rax
       case binop of
-        Ast.Add -> do
+        TypeSystem.Add -> do
           emitAsmInst Add {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Add operation changes the flags
           pushTempToStack
-        Ast.Sub -> do
+        TypeSystem.Sub -> do
           emitAsmInst Sub {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Sub operation changes the flags
           pushTempToStack
-        Ast.Mul -> do
+        TypeSystem.Mul -> do
           emitAsmInst Imul {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Mul operation changes the flags
           pushTempToStack
-        Ast.Div -> do
+        TypeSystem.Div -> do
           emitAsmInst Cqo -- Sign-extend rax into rdx before division
           emitAsmInst Idiv {src = Reg Rbx}
           changeFlagOp Jnz -- Div operation changes the flags
           pushTempToStack
-        Ast.Equal -> do
+        TypeSystem.Equal -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Je
-        Ast.NotEqual -> do
+        TypeSystem.NotEqual -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jne
-        Ast.LessThan -> do
+        TypeSystem.LessThan -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jl
-        Ast.LessThanOrEqual -> do
+        TypeSystem.LessThanOrEqual -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jle
-        Ast.GreaterThan -> do
+        TypeSystem.GreaterThan -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jg
-        Ast.GreaterThanOrEqual -> do
+        TypeSystem.GreaterThanOrEqual -> do
           emitAsmInst Cmp {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jge
-        Ast.And -> do
+        TypeSystem.And -> do
           emitAsmInst And {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- And operation changes the flags
           pushTempToStack
-        Ast.Or -> do
+        TypeSystem.Or -> do
           emitAsmInst Or {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Or operation changes the flags
           pushTempToStack
-        Ast.Xor -> do
+        TypeSystem.Xor -> do
           emitAsmInst Xor {src = Reg Rbx, dst = Reg Rax}
           changeFlagOp Jnz -- Xor operation changes the flags
           pushTempToStack
-        Ast.Mod -> do
+        TypeSystem.Mod -> do
           emitAsmInst Cqo -- Sign-extend rax into rdx before division
           emitAsmInst Idiv {src = Reg Rbx}
           -- Result is in rdx, push it to the stack
@@ -248,11 +248,11 @@ translateInst inst
   | Mir.UnaryOp {unop} <- inst = do
       emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax
       case unop of
-        Ast.UnarySub -> do
+        TypeSystem.UnarySub -> do
           emitAsmInst Neg {op = Reg Rax}
           changeFlagOp Jnz -- Negation changes the flags
           pushTempToStack
-        Ast.UnaryNot -> do
+        TypeSystem.UnaryNot -> do
           emitAsmInst Not {op = Reg Rax}
           changeFlagOp Jz -- Not operation changes the flags
           pushTempToStack
@@ -299,7 +299,7 @@ translateMainFun :: Mir.Fun -> State TranslationState ()
 translateMainFun Mir.Fun {locals, blocks} = do
   let (frameSize, varOffsetList) =
         foldl
-          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, -a)])
+          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, -a)])
           )
           (0, [])
           locals
@@ -333,7 +333,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
   -- let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
   let (frameSize, varOffsetList) =
         foldl
-          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, -a)])
+          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, -a)])
           )
           (0, [])
           (args ++ locals)
@@ -342,7 +342,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
 
   let (_, argOffsets) =
         foldl
-          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, a)])
+          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, a)])
           )
           (16, [])
           args

@@ -6,6 +6,7 @@ import Ast.Types
 import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
+import TypeSystem
 import Prelude hiding (exp, id, lex)
 
 comment :: PC.Parser ()
