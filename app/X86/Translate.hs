@@ -2,11 +2,12 @@
 
 module X86.Translate where
 
+import Ast.Types (tySize)
 import Ast.Types qualified as Ast
 import Control.Monad (forM_)
 import Control.Monad.State (State, gets, modify', runState)
-import Data.List (iterate')
 import Data.Map (Map, empty, fromList, lookup)
+import Env
 import Mir.Types qualified as Mir
 import X86.Types
 
@@ -74,29 +75,98 @@ emitAsmInst code = modify' (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
 getVarOffset :: Ast.Id -> State TranslationState (Maybe Int)
 getVarOffset varId = gets (Data.Map.lookup varId . (.varOffsets))
 
-loadVarToEax :: Ast.Id -> State TranslationState ()
+loadVarToEax :: Mir.Var -> State TranslationState ()
 loadVarToEax varId = do
-  maybeOffset <- getVarOffset varId
-  case maybeOffset of
-    Just offset ->
-      emitAsmInst $
-        Mov
-          { src = Mem {base = Rbp, offset, mult = 1},
-            dst = Reg Rax
-          }
-    Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
+  case varId of
+    Mir.Local {id} -> do
+      maybeOffset <- getVarOffset id
+      case maybeOffset of
+        Just disp ->
+          emitAsmInst $
+            Mov
+              { src = Mem {base = Rbp, disp, index_scale = Nothing},
+                dst = Reg Rax
+              }
+        Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
+    Mir.Arg {id} -> do
+      maybeOffset <- getVarOffset id
+      case maybeOffset of
+        Just disp ->
+          emitAsmInst $
+            Mov
+              { src = Mem {base = Rbp, disp, index_scale = Nothing},
+                dst = Reg Rax
+              }
+        Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
+    Mir.LocalArr {id, offset} -> do
+      maybeOffset <- getVarOffset id
+      let baseOffset = case maybeOffset of
+            Just baseOffset -> baseOffset
+            Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
 
-storeEaxToVar :: Ast.Id -> State TranslationState ()
+      case offset of
+        Mir.ConstInt off ->
+          emitAsmInst $
+            Mov
+              { src = Mem {base = Rbp, disp = baseOffset - off, index_scale = Nothing},
+                dst = Reg Rax
+              }
+        Mir.Temp _ -> do
+          -- pop temp into rsi
+          emitAsmInst
+            Pop {op = Reg Rsi}
+          -- then load from rsi into rax
+          emitAsmInst $
+            Mov
+              { src = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, 1)},
+                dst = Reg Rax
+              }
+
+storeEaxToVar :: Mir.Var -> State TranslationState ()
 storeEaxToVar varId = do
-  maybeOffset <- getVarOffset varId
-  case maybeOffset of
-    Just offset ->
-      emitAsmInst $
-        Mov
-          { src = Reg Rax,
-            dst = Mem {base = Rbp, offset, mult = 1}
-          }
-    Nothing -> error $ "Variable " ++ show varId ++ " not found in stack frame"
+  case varId of
+    Mir.Local {id} -> do
+      maybeOffset <- getVarOffset id
+      case maybeOffset of
+        Just disp ->
+          emitAsmInst $
+            Mov
+              { src = Reg Rax,
+                dst = Mem {base = Rbp, disp, index_scale = Nothing}
+              }
+        Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
+    Mir.Arg {id} -> do
+      maybeOffset <- getVarOffset id
+      case maybeOffset of
+        Just disp ->
+          emitAsmInst $
+            Mov
+              { src = Reg Rax,
+                dst = Mem {base = Rbp, disp, index_scale = Nothing}
+              }
+        Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
+    Mir.LocalArr {id, offset} -> do
+      maybeOffset <- getVarOffset id
+      let baseOffset = case maybeOffset of
+            Just baseOffset -> baseOffset
+            Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
+
+      case offset of
+        Mir.ConstInt off -> do
+          emitAsmInst $
+            Mov
+              { src = Reg Rax,
+                dst = Mem {base = Rbp, disp = baseOffset - off, index_scale = Nothing}
+              }
+        Mir.Temp _ -> do
+          -- pop temp into rsi
+          emitAsmInst Pop {op = Reg Rsi}
+          -- then store from rax into rsi indexed memory location
+          emitAsmInst $
+            Mov
+              { src = Reg Rax,
+                dst = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, 1)}
+              }
 
 -- All temps pass by rax register
 pushTempToStack :: State TranslationState ()
@@ -188,12 +258,12 @@ translateInst inst
           pushTempToStack
       return ()
   | Mir.Load {srcVar} <- inst = do
-      loadVarToEax srcVar.id
+      loadVarToEax srcVar
       pushTempToStack
       return ()
   | Mir.Store {dstVar} <- inst = do
       popTempFromStack
-      storeEaxToVar dstVar.id
+      storeEaxToVar dstVar
       return ()
   | Mir.Call {funId, argCount, ret} <- inst = do
       emitAsmInst $ Call {name = funId}
@@ -225,42 +295,72 @@ translateBasicBlock (Mir.BasicBlock label insts) = do
   emitAsmInst Label {label = label}
   mapM_ translateInst insts
 
-translateFun :: Mir.Fun -> State TranslationState ()
-translateFun Mir.Fun {id, args, locals, blocks} = do
-  -- Allocate space for local variables
-  let stackFrameSize = length locals * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
-  mapM_ emitAsmInst (functionPrologue id stackFrameSize)
-
-  -- from rbp:
-  -- at position 0 is the last rbp
-  -- at position 8 is the return address
-  -- at position 16 is the first argument, the second argument is at position 24, etc.
-  let argOffsets = zip args (iterate' (+ 8) 16)
-
-  -- local variables have negative offsets from rbp
-  -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
-  let varOffsetList = zip locals (iterate' (+ (-8)) (-8))
-
-  let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
-  modify' (\s -> s {varOffsets})
-
-  mapM_ translateBasicBlock (reverse blocks)
-
-  mapM_ emitAsmInst functionEpilogue
-
 translateMainFun :: Mir.Fun -> State TranslationState ()
 translateMainFun Mir.Fun {locals, blocks} = do
-  let frameSize = length locals * 8
+  let (frameSize, varOffsetList) =
+        foldl
+          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, -a)])
+          )
+          (0, [])
+          locals
+
   mapM_ emitAsmInst (mainFunctionPrologue frameSize)
 
   -- here 0 is the first local variable, -8 is the second, etc.
-  let varOffsetList = zip locals (iterate (+ (-8)) 0)
   let varOffsets = Data.Map.fromList varOffsetList
   modify' (\s -> s {varOffsets})
 
   mapM_ translateBasicBlock (reverse blocks)
 
   mapM_ emitAsmInst mainFunctionEpilogue
+
+translateFun :: Mir.Fun -> State TranslationState ()
+translateFun Mir.Fun {id, args, locals, blocks} = do
+  -- Allocate space for local variables
+  -- let stackFrameSize = length locals * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
+  -- mapM_ emitAsmInst (functionPrologue id stackFrameSize)
+
+  -- -- from rbp:
+  -- -- at position 0 is the last rbp
+  -- -- at position 8 is the return address
+  -- -- at position 16 is the first argument, the second argument is at position 24, etc.
+  -- let argOffsets = zip args (iterate' (+ 8) 16)
+
+  -- -- local variables have negative disps from rbp
+  -- -- at position -8 is the first local variable, at position -16 is the second local variable, etc.
+  -- let varOffsetList = zip locals (iterate' (+ (-8)) (-8))
+
+  -- let varOffsets = Data.Map.fromList $ argOffsets ++ varOffsetList
+  let (frameSize, varOffsetList) =
+        foldl
+          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, -a)])
+          )
+          (0, [])
+          (args ++ locals)
+
+  mapM_ emitAsmInst (functionPrologue id frameSize)
+
+  let (_, argOffsets) =
+        foldl
+          ( \(a, offsets) s -> (a + tySize s.ty, offsets ++ [(s.id, a)])
+          )
+          (16, [])
+          args
+
+  modify'
+    ( \s ->
+        s
+          { varOffsets =
+              Data.Map.fromList
+                ( map (\(id, off) -> (id, off - 8)) varOffsetList
+                    ++ argOffsets
+                )
+          }
+    )
+
+  mapM_ translateBasicBlock (reverse blocks)
+
+  mapM_ emitAsmInst functionEpilogue
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {funs, externFuns, mainFun} = do
@@ -276,7 +376,7 @@ translateProgram program = show finalState
   where
     initialState =
       TranslationState
-        { varOffsets = empty,
+        { varOffsets = Data.Map.empty,
           assemblyCode = [],
           lastJmpCond = Nothing,
           fileHeader = ""

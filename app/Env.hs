@@ -18,7 +18,7 @@ module Env
     insertFun,
     emptyEnvStack,
     numSymbolsInEnv,
-    toIdList,
+    toList,
     insertExternFunction,
   )
 where
@@ -39,7 +39,7 @@ instance Show SymbolAlloc where
   show Local = "Local"
   show Global = "Global"
 
-data Symbol = Symbol {ty :: Ty, alloc :: SymbolAlloc}
+data Symbol = Symbol {id :: Id, ty :: Ty, alloc :: SymbolAlloc}
   deriving (Eq)
 
 instance Show Symbol where
@@ -104,7 +104,8 @@ insertFunction f =
   insert
     f.id
     Symbol
-      { alloc = Global,
+      { id = f.id,
+        alloc = Global,
         ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
       }
 
@@ -113,22 +114,24 @@ insertExternFunction f =
   insert
     f.id
     Symbol
-      { alloc = Global,
+      { id = f.id,
+        alloc = Global,
         ty = FunTy {args = f.args, retty = f.retty}
       }
 
 insertVar :: VarDef -> EnvStack -> EnvStack
-insertVar v = insert v.id Symbol {alloc = Local, ty = v.ty}
+insertVar v = insert v.id Symbol {id = v.id, alloc = Local, ty = v.ty}
 
 insertArg :: VarDef -> EnvStack -> EnvStack
-insertArg v = insert v.id Symbol {alloc = Argument, ty = v.ty}
+insertArg v = insert v.id Symbol {id = v.id, alloc = Argument, ty = v.ty}
 
 insertFun :: Fun a b -> EnvStack -> EnvStack
 insertFun f =
   insert
     f.id
     Symbol
-      { alloc = Global,
+      { id = f.id,
+        alloc = Global,
         ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
       }
 
@@ -138,5 +141,5 @@ emptyEnvStack name = EnvStack {stack = [emptyEnv name]}
 numSymbolsInEnv :: Env -> Int
 numSymbolsInEnv e = Map.size e.symbols
 
-toIdList :: Env -> [Id]
-toIdList e = Map.keys e.symbols
+toList :: Env -> [Symbol]
+toList e = Map.elems e.symbols

@@ -18,6 +18,13 @@ data Ty
       }
   deriving (Show, Eq)
 
+tySize :: Ty -> Int
+tySize IntTy = 8
+tySize BoolTy = 8
+tySize VoidTy = 0
+tySize (FunTy {args}) = sum (map tySize args)
+tySize (ArrTy {elemTy, size}) = tySize elemTy * size
+
 data BinOp
   = -- Arithmetic
     Add

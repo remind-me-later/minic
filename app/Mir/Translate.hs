@@ -96,17 +96,38 @@ transExp Ast.Exp {annot, exp}
           modify' $ addInstsToBlock [Mir.Call {ret = Just t, funId = id, argCount = length args}]
   | Ast.ArrAccess {id, index} <- exp = do
       transExp index
-      tIndex <- gets $ Mir.ConstInt . (.tmp)
+      tIndex <- gets (.tmp)
       modify' incTmp
-      symb <- gets (lookup id)
-      case symb of
-        Just Env.Symbol {alloc = Env.Local} -> do
-          t <- gets (.tmp)
-          modify' incTmp
-          modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar = Mir.LocalArr {id, offset = tIndex}}]
-        Just Env.Symbol {alloc = Env.Argument} -> do
-          error "Array access on argument is not supported"
-        _ -> error $ "Undefined array: " ++ id
+      arrayAccess id tIndex >>= \case
+        Mir.LocalArr {id, offset} -> do
+          modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar = Mir.LocalArr {id, offset}}]
+        _ -> error "Unexpected array access result"
+
+arrayAccess :: Ast.Id -> Mir.Temp -> State TranslationState Mir.Var
+arrayAccess id idxtemp = do
+  symb <- gets (lookup id)
+  case symb of
+    Just Env.Symbol {alloc = Env.Local, ty = Ast.ArrTy {elemTy}} -> do
+      -- multiply the index by the size of the element
+      multt <- gets (.tmp)
+      modify' incTmp
+
+      modify'
+        ( addInstsToBlock
+            [ Mir.Assign {dst = multt, srcOp = Mir.ConstInt (-Ast.tySize elemTy)},
+              Mir.BinOp
+                { dst = multt,
+                  binop = Ast.Mul,
+                  left = idxtemp,
+                  right = multt
+                }
+            ]
+        )
+
+      return $ Mir.LocalArr {id, offset = Mir.Temp multt}
+    Just Env.Symbol {alloc = Env.Argument} -> do
+      error "Array access on argument is not supported"
+    _ -> error $ "Undefined array: " ++ id
 
 transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
@@ -136,28 +157,35 @@ transStmt stmt
       -- registers to store the elements
       foldM_
         ( \idx elem -> do
-            transExp elem
-            tElem <- gets (.tmp)
+            offsetTemp <- gets (.tmp)
             modify' incTmp
-            modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset = Mir.ConstInt idx}, src = tElem}])
+            modify' (addInstsToBlock [Mir.Assign {dst = offsetTemp, srcOp = Mir.ConstInt idx}])
+
+            -- access the array and store the element
+            arrayAccess id offsetTemp >>= \case
+              Mir.LocalArr {id, offset} -> do
+                transExp elem
+                tElem <- gets (.tmp)
+                modify' incTmp
+                modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset}, src = tElem}])
+              _ -> error "Unexpected array access result"
+
             return (idx + 1)
         )
         0
         elems
   | Ast.AssignArrStmt {id, index, exp} <- stmt = do
       transExp index
-      tIndex <- gets $ Mir.ConstInt . (.tmp)
+      tIndex <- gets (.tmp)
       modify' incTmp
-      transExp exp
-      tExp <- gets (.tmp)
-      modify' incTmp
-      symb <- gets (lookup id)
-      case symb of
-        Just Env.Symbol {alloc = Env.Local} -> do
-          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset = tIndex}, src = tExp}])
-        Just Env.Symbol {alloc = Env.Argument} -> do
-          error "Assigning to an array argument is not supported"
-        _ -> error $ "Undefined array: " ++ id
+
+      arrayAccess id tIndex >>= \case
+        Mir.LocalArr {id, offset} -> do
+          transExp exp
+          tExp <- gets (.tmp)
+          modify' incTmp
+          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset}, src = tExp}])
+        _ -> error "Unexpected array access result"
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
@@ -231,14 +259,42 @@ transBlock label Ast.Block {annot = scope, stmts} = do
 transFun :: Ast.TypedFun -> State TranslationState Mir.Fun
 transFun Ast.Fun {id, args, body} = do
   let entryLabel = id ++ "_entry"
+
+  -- let args' = args
+  let Ast.Block {annot} = body
+
+  -- for each argument find its symbol in the environment, order matters
+  modify' (stackEnv annot)
+
+  args <-
+    mapM
+      ( \arg -> do
+          symb <- gets (lookup arg.id)
+          case symb of
+            Just s@Env.Symbol {alloc} ->
+              case alloc of
+                Env.Argument -> return s
+                _ -> error $ "Unexpected symbol alloc for argument: " ++ show alloc
+            Nothing -> error $ "Undefined argument: " ++ arg.id
+      )
+      args
+
+  modify' popEnv
+
+  -- for each local variable find its symbol in the environment, order does not matter
+  let locals =
+        filter
+          ( \local -> case local.alloc of
+              Env.Local -> True
+              _ -> False
+          )
+          (Env.toList annot)
+
   _ <- transBlock entryLabel body
   blocks <- gets (.blocks)
   modify' popBlocks
-  let args' = (.id) <$> args
-  let Ast.Block {annot} = body
-  -- remove parameters from locals
-  let locals = filter (`notElem` args') (Env.toIdList annot)
-  return Mir.Fun {id = id, args = args', locals, entryLabel = entryLabel, blocks = blocks}
+
+  return Mir.Fun {id, args, locals, entryLabel, blocks}
 
 transExternFun :: Ast.ExternFun -> Mir.ExternFun
 transExternFun Ast.ExternFun {id} = Mir.ExternFun {externId = id}

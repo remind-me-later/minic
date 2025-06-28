@@ -6,11 +6,84 @@
 
 _start:
 	movq %rsp, %rbp
-	subq $0, %rsp
+	subq $24, %rsp
 main_entry:
-	pushq $5
-	call fact
+	pushq $0
+	pushq $-8
 	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	pushq $10
+	popq %rax
+	popq %rsi
+	movq %rax, 0(%rbp, %rsi)
+	pushq $1
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	pushq $0
+	popq %rax
+	popq %rsi
+	movq %rax, 0(%rbp, %rsi)
+	pushq $2
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	pushq $0
+	popq %rax
+	popq %rsi
+	movq %rax, 0(%rbp, %rsi)
+	pushq $1
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	pushq $20
+	popq %rax
+	popq %rsi
+	movq %rax, 0(%rbp, %rsi)
+	pushq $0
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	popq %rsi
+	movq 0(%rbp, %rsi), %rax
+	pushq %rax
+	call print_int
+	popq %rbx
+	pushq $32
+	call print_char
+	popq %rbx
+	pushq $1
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	popq %rsi
+	movq 0(%rbp, %rsi), %rax
+	pushq %rax
+	call print_int
+	popq %rbx
+	pushq $32
+	call print_char
+	popq %rbx
+	pushq $2
+	pushq $-8
+	popq %rbx
+	popq %rax
+	imulq %rbx, %rax
+	pushq %rax
+	popq %rsi
+	movq 0(%rbp, %rsi), %rax
 	pushq %rax
 	call print_int
 	popq %rbx
@@ -23,11 +96,11 @@ main_entry:
 print_int:
 	pushq %rbp
 	movq %rsp, %rbp
-	subq $8, %rsp
+	subq $16, %rsp
 print_int_entry:
 	pushq $0
 	popq %rax
-	movq %rax, -8(%rbp)
+	movq %rax, -16(%rbp)
 	movq 16(%rbp), %rax
 	pushq %rax
 	pushq $10
@@ -67,9 +140,9 @@ if_else_1:
 	idivq %rbx
 	pushq %rdx
 	popq %rax
-	movq %rax, -8(%rbp)
+	movq %rax, -16(%rbp)
 	pushq $48
-	movq -8(%rbp), %rax
+	movq -16(%rbp), %rax
 	pushq %rax
 	popq %rbx
 	popq %rax
@@ -79,58 +152,6 @@ if_else_1:
 	popq %rbx
 	jmp if_end_2
 if_end_2:
-	movq %rbp, %rsp
-	popq %rbp
-	ret
-fact:
-	pushq %rbp
-	movq %rsp, %rbp
-	subq $16, %rsp
-fact_entry:
-	pushq $1
-	popq %rax
-	movq %rax, -16(%rbp)
-	pushq $2
-	popq %rax
-	movq %rax, -8(%rbp)
-while_cond_3:
-	movq -8(%rbp), %rax
-	pushq %rax
-	movq 16(%rbp), %rax
-	pushq %rax
-	popq %rbx
-	popq %rax
-	cmpq %rbx, %rax
-	jle while_loop_4
-	jmp while_end_5
-while_loop_4:
-	movq -16(%rbp), %rax
-	pushq %rax
-	movq -8(%rbp), %rax
-	pushq %rax
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
-	popq %rax
-	movq %rax, -16(%rbp)
-	movq -8(%rbp), %rax
-	pushq %rax
-	pushq $1
-	popq %rbx
-	popq %rax
-	addq %rbx, %rax
-	pushq %rax
-	popq %rax
-	movq %rax, -8(%rbp)
-	jmp while_cond_3
-while_end_5:
-	movq -16(%rbp), %rax
-	pushq %rax
-	popq %rax
-	movq %rbp, %rsp
-	popq %rbp
-	ret
 	movq %rbp, %rsp
 	popq %rbp
 	ret

@@ -28,17 +28,20 @@ data Op
   | Reg Reg
   | Mem
       { base :: Reg,
-        offset :: Int,
-        mult :: Int
+        index_scale :: Maybe (Reg, Int),
+        disp :: Int
       }
   deriving (Eq)
 
 instance Show Op where
   show (Imm i) = '$' : show i
   show (Reg r) = show r
-  show Mem {base, offset = 0, mult = 1} = "(" ++ show base ++ ")"
-  show Mem {base, offset, mult = 1} = show offset ++ "(" ++ show base ++ ")"
-  show Mem {base, offset, mult} = show offset ++ "(" ++ show base ++ ", " ++ show mult ++ ")"
+  -- show Mem {base, disp = 0, index_scale = Nothing} = "(" ++ show base ++ ")"
+  show Mem {base, disp, index_scale = Nothing} = show disp ++ "(" ++ show base ++ ")"
+  show Mem {base, index_scale = Just (index, 1), disp} =
+    show disp ++ "(" ++ show base ++ ", " ++ show index ++ ")"
+  show Mem {base, index_scale = Just (index, scale), disp} =
+    show disp ++ "(" ++ show base ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
 
 data JmpCond
   = Jnz

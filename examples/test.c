@@ -12,21 +12,27 @@ void print_int(int n) {
     }
 }
 
-int fact(int n) {
-    int result = 1;
-    int i = 2;
-    while (i <= n) {
-        result = result * i;
-        i = i+1;    
-    }
+// int fact(int n) {
+//     int result = 1;
+//     int i = 2;
+//     while (i <= n) {
+//         result = result * i;
+//         i = i+1;    
+//     }
 
-    return result;
-}
+//     return result;
+// }
 
 void main() {
-    int arr[3] = {1, 2, 3};
-    arr[0] = 10;
-    print_int(fact(5));
+    int arr[3] = {10, 0, 0};
+    arr[1] = 20;
+    // arr[0] = 10;
+    print_int(arr[0]);
+    print_char(32); // space
+    print_int(arr[1]);
+    print_char(32); // space
+    // arr[2] = 3;
+    print_int(arr[2]);
     print_char(10); // newline
 }
 

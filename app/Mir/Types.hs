@@ -14,6 +14,7 @@ module Mir.Types
 where
 
 import Ast qualified
+import qualified Env
 
 type Temp = Int
 
@@ -84,8 +85,8 @@ instance Show BasicBlock where
 
 data Fun = Fun
   { id :: Ast.Id,
-    args :: [Ast.Id],
-    locals :: [Ast.Id],
+    args :: [Env.Symbol],
+    locals :: [Env.Symbol],
     entryLabel :: Label,
     blocks :: [BasicBlock]
   }
@@ -97,10 +98,10 @@ instance Show Fun where
       ++ name
       ++ "\n"
       ++ "Args: "
-      ++ unwords args
+      ++ unwords (show <$> args)
       ++ "\n"
       ++ "Locals: "
-      ++ unwords locals
+      ++ unwords (show <$> locals)
       ++ "\n"
       ++ "Entry: "
       ++ entryLabel
