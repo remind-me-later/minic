@@ -9,56 +9,31 @@ _start:
 	subq $24, %rsp
 main_entry:
 	pushq $0
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	pushq $10
 	popq %rax
 	popq %rsi
-	movq %rax, 0(%rbp, %rsi)
+	movq %rax, (%rbp, %rsi, 8)
 	pushq $1
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	pushq $0
 	popq %rax
 	popq %rsi
-	movq %rax, 0(%rbp, %rsi)
+	movq %rax, (%rbp, %rsi, 8)
 	pushq $2
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	pushq $5
 	call fact
 	popq %rbx
 	pushq %rax
 	popq %rax
 	popq %rsi
-	movq %rax, 0(%rbp, %rsi)
+	movq %rax, (%rbp, %rsi, 8)
 	pushq $1
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	pushq $20
 	popq %rax
 	popq %rsi
-	movq %rax, 0(%rbp, %rsi)
+	movq %rax, (%rbp, %rsi, 8)
 	pushq $0
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	popq %rsi
-	movq 0(%rbp, %rsi), %rax
+	movq (%rbp, %rsi, 8), %rax
 	pushq %rax
 	call print_int
 	popq %rbx
@@ -66,13 +41,8 @@ main_entry:
 	call print_char
 	popq %rbx
 	pushq $1
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	popq %rsi
-	movq 0(%rbp, %rsi), %rax
+	movq (%rbp, %rsi, 8), %rax
 	pushq %rax
 	call print_int
 	popq %rbx
@@ -80,13 +50,8 @@ main_entry:
 	call print_char
 	popq %rbx
 	pushq $2
-	pushq $-8
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
 	popq %rsi
-	movq 0(%rbp, %rsi), %rax
+	movq (%rbp, %rsi, 8), %rax
 	pushq %rax
 	call print_int
 	popq %rbx

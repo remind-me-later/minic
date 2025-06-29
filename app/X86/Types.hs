@@ -36,10 +36,14 @@ data Op
 instance Show Op where
   show (Imm i) = '$' : show i
   show (Reg r) = show r
-  -- show Mem {base, disp = 0, index_scale = Nothing} = "(" ++ show base ++ ")"
+  show Mem {base, disp = 0, index_scale = Nothing} = "(" ++ show base ++ ")"
   show Mem {base, disp, index_scale = Nothing} = show disp ++ "(" ++ show base ++ ")"
+  show Mem {base, index_scale = Just (index, 1), disp = 0} =
+    "(" ++ show base ++ ", " ++ show index ++ ")"
   show Mem {base, index_scale = Just (index, 1), disp} =
     show disp ++ "(" ++ show base ++ ", " ++ show index ++ ")"
+  show Mem {base, index_scale = Just (index, scale), disp = 0} =
+    "(" ++ show base ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
   show Mem {base, index_scale = Just (index, scale), disp} =
     show disp ++ "(" ++ show base ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
 

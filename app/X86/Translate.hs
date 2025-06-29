@@ -98,7 +98,7 @@ loadVarToEax varId = do
                 dst = Reg Rax
               }
         Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
-    Mir.LocalArr {id, offset} -> do
+    Mir.LocalWithOffset {id, offset, mult} -> do
       maybeOffset <- getVarOffset id
       let baseOffset = case maybeOffset of
             Just baseOffset -> baseOffset
@@ -108,7 +108,7 @@ loadVarToEax varId = do
         Mir.ConstInt off ->
           emitAsmInst $
             Mov
-              { src = Mem {base = Rbp, disp = baseOffset - off, index_scale = Nothing},
+              { src = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing},
                 dst = Reg Rax
               }
         Mir.Temp _ -> do
@@ -118,7 +118,7 @@ loadVarToEax varId = do
           -- then load from rsi into rax
           emitAsmInst $
             Mov
-              { src = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, 1)},
+              { src = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, mult)},
                 dst = Reg Rax
               }
 
@@ -145,7 +145,7 @@ storeEaxToVar varId = do
                 dst = Mem {base = Rbp, disp, index_scale = Nothing}
               }
         Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
-    Mir.LocalArr {id, offset} -> do
+    Mir.LocalWithOffset {id, offset, mult} -> do
       maybeOffset <- getVarOffset id
       let baseOffset = case maybeOffset of
             Just baseOffset -> baseOffset
@@ -156,7 +156,7 @@ storeEaxToVar varId = do
           emitAsmInst $
             Mov
               { src = Reg Rax,
-                dst = Mem {base = Rbp, disp = baseOffset - off, index_scale = Nothing}
+                dst = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing}
               }
         Mir.Temp _ -> do
           -- pop temp into rsi
@@ -165,7 +165,7 @@ storeEaxToVar varId = do
           emitAsmInst $
             Mov
               { src = Reg Rax,
-                dst = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, 1)}
+                dst = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, mult)}
               }
 
 -- All temps pass by rax register
@@ -177,7 +177,7 @@ popTempFromStack = emitAsmInst Pop {op = Reg Rax}
 
 translateInst :: Mir.Inst -> State TranslationState ()
 translateInst inst
-  | Mir.Assign {srcOp} <- inst = do
+  | Mir.Mov {srcOp} <- inst = do
       -- Translate assignment instruction
       case srcOp of
         Mir.ConstInt value -> do

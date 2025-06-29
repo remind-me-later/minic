@@ -10,7 +10,7 @@ import Control.Monad (foldM, foldM_)
 import Control.Monad.State (State, gets, modify', runState)
 import Env qualified
 import Mir.Types qualified as Mir
-import TypeSystem (BinOp (..), Id, Ty (..), sizeOf)
+import TypeSystem (Id, Ty (..), sizeOf)
 import Prelude hiding (lookup)
 
 data TranslationState = TranslationState
@@ -64,7 +64,7 @@ transExp Ast.Exp {annot, exp}
         Nothing -> error $ "Undefined variable: " ++ id
   | Ast.NumberExp {num} <- exp = do
       t <- gets (.tmp)
-      modify' $ addInstsToBlock [Mir.Assign {dst = t, srcOp = Mir.ConstInt num}]
+      modify' $ addInstsToBlock [Mir.Mov {dst = t, srcOp = Mir.ConstInt num}]
   | Ast.BinExp {left, op, right} <- exp = do
       transExp left
       lt <- gets (.tmp)
@@ -99,33 +99,15 @@ transExp Ast.Exp {annot, exp}
       transExp index
       tIndex <- gets (.tmp)
       modify' incTmp
-      arrayAccess id tIndex >>= \case
-        Mir.LocalArr {id, offset} -> do
-          modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar = Mir.LocalArr {id, offset}}]
-        _ -> error "Unexpected array access result"
+      srcVar <- arrayAccess id tIndex
+      modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar}]
 
 arrayAccess :: Id -> Mir.Temp -> State TranslationState Mir.Var
 arrayAccess id idxtemp = do
   symb <- gets (lookup id)
   case symb of
     Just Env.Symbol {alloc = Env.Local, ty = ArrTy {elemTy}} -> do
-      -- multiply the index by the size of the element
-      multt <- gets (.tmp)
-      modify' incTmp
-
-      modify'
-        ( addInstsToBlock
-            [ Mir.Assign {dst = multt, srcOp = Mir.ConstInt (-sizeOf elemTy)},
-              Mir.BinOp
-                { dst = multt,
-                  binop = Mul,
-                  left = idxtemp,
-                  right = multt
-                }
-            ]
-        )
-
-      return $ Mir.LocalArr {id, offset = Mir.Temp multt}
+      return $ Mir.LocalWithOffset {id, offset = Mir.Temp idxtemp, mult = sizeOf elemTy}
     Just Env.Symbol {alloc = Env.Argument} -> do
       error "Array access on argument is not supported"
     _ -> error $ "Undefined array: " ++ id
@@ -160,16 +142,14 @@ transStmt stmt
         ( \idx elem -> do
             offsetTemp <- gets (.tmp)
             modify' incTmp
-            modify' (addInstsToBlock [Mir.Assign {dst = offsetTemp, srcOp = Mir.ConstInt idx}])
+            modify' (addInstsToBlock [Mir.Mov {dst = offsetTemp, srcOp = Mir.ConstInt idx}])
 
             -- access the array and store the element
-            arrayAccess id offsetTemp >>= \case
-              Mir.LocalArr {id, offset} -> do
-                transExp elem
-                tElem <- gets (.tmp)
-                modify' incTmp
-                modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset}, src = tElem}])
-              _ -> error "Unexpected array access result"
+            dstVar <- arrayAccess id offsetTemp
+            transExp elem
+            tElem <- gets (.tmp)
+            modify' incTmp
+            modify' (addInstsToBlock [Mir.Store {dstVar, src = tElem}])
 
             return (idx + 1)
         )
@@ -180,13 +160,11 @@ transStmt stmt
       tIndex <- gets (.tmp)
       modify' incTmp
 
-      arrayAccess id tIndex >>= \case
-        Mir.LocalArr {id, offset} -> do
-          transExp exp
-          tExp <- gets (.tmp)
-          modify' incTmp
-          modify' (addInstsToBlock [Mir.Store {dstVar = Mir.LocalArr {id, offset}, src = tExp}])
-        _ -> error "Unexpected array access result"
+      dstVar <- arrayAccess id tIndex
+      transExp exp
+      tExp <- gets (.tmp)
+      modify' incTmp
+      modify' (addInstsToBlock [Mir.Store {dstVar, src = tExp}])
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do

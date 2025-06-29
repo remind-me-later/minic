@@ -22,14 +22,16 @@ type Label = String
 
 data Var
   = Local {id :: Id}
-  | LocalArr {id :: Id, offset :: Operand}
+  | LocalWithOffset {id :: Id, offset :: Operand, mult :: Int}
   | Arg {id :: Id}
   deriving (Eq)
 
 instance Show Var where
   show (Local id) = "local " ++ id
   show (Arg id) = "arg " ++ id
-  show (LocalArr id offset) = "local " ++ id ++ "[" ++ show offset ++ "]"
+  show (LocalWithOffset id offset 0) = "local " ++ id ++ "[" ++ show offset ++ "]"
+  show (LocalWithOffset id offset mult) =
+    "local " ++ id ++ "[" ++ show offset ++ " * " ++ show mult ++ "]"
 
 data Operand
   = ConstInt Int
@@ -41,7 +43,7 @@ instance Show Operand where
   show (Temp t) = "t" ++ show t
 
 data Inst
-  = Assign {dst :: Temp, srcOp :: Operand}
+  = Mov {dst :: Temp, srcOp :: Operand}
   | UnaryOp {dst :: Temp, unop :: UnaryOp, src :: Temp}
   | BinOp {dst :: Temp, binop :: BinOp, left :: Temp, right :: Temp}
   | Load {dst :: Temp, srcVar :: Var}
@@ -54,7 +56,7 @@ data Inst
   deriving (Eq)
 
 instance Show Inst where
-  show Assign {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
+  show Mov {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
   show UnaryOp {dst, unop, src} = "t" ++ show dst ++ " = " ++ show unop ++ " t" ++ show src
   show BinOp {dst, binop, left, right} =
     "t" ++ show dst ++ " = " ++ "t" ++ show left ++ " " ++ show binop ++ " " ++ "t" ++ show right
