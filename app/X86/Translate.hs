@@ -113,8 +113,9 @@ loadVarToEax varId = do
               }
         Mir.Temp _ -> do
           -- pop temp into rsi
-          emitAsmInst
-            Pop {op = Reg Rsi}
+          emitAsmInst Pop {op = Reg Rsi}
+          emitAsmInst $ Neg {op = Reg Rsi} -- Negate rsi to use as index
+
           -- then load from rsi into rax
           emitAsmInst $
             Mov
@@ -161,6 +162,7 @@ storeEaxToVar varId = do
         Mir.Temp _ -> do
           -- pop temp into rsi
           emitAsmInst Pop {op = Reg Rsi}
+          emitAsmInst $ Neg {op = Reg Rsi} -- Negate rsi to use as index
           -- then store from rax into rsi indexed memory location
           emitAsmInst $
             Mov

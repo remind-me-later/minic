@@ -71,15 +71,11 @@ transExp Ast.Exp {annot, exp}
       modify' incTmp
       transExp right
       rt <- gets (.tmp)
-      modify' incTmp
-      tout <- gets (.tmp)
-      modify' $ addInstsToBlock [Mir.BinOp {dst = tout, binop = op, left = lt, right = rt}]
+      modify' $ addInstsToBlock [Mir.BinOp {dst = rt, binop = op, left = lt, right = rt}]
   | Ast.UnaryExp {unop, exp} <- exp = do
       transExp exp
       t <- gets (.tmp)
-      modify' incTmp
-      tout <- gets (.tmp)
-      modify' $ addInstsToBlock [Mir.UnaryOp {dst = tout, unop = unop, src = t}]
+      modify' $ addInstsToBlock [Mir.UnaryOp {dst = t, unop = unop, src = t}]
   | Ast.Call {id, args} <- exp = do
       mapM_
         ( \arg -> do
@@ -95,19 +91,34 @@ transExp Ast.Exp {annot, exp}
         _ -> do
           t <- gets (.tmp)
           modify' $ addInstsToBlock [Mir.Call {ret = Just t, funId = id, argCount = length args}]
+  | Ast.ArrAccess {id, index = Ast.Exp {exp = Ast.NumberExp {num}}} <- exp = do
+      -- Accessing an array with a constant index
+      let idx = Mir.ConstInt num
+      srcVar <- arrayAccess id idx
+      t <- gets (.tmp)
+      modify' incTmp
+      modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar}]
   | Ast.ArrAccess {id, index} <- exp = do
       transExp index
       tIndex <- gets (.tmp)
       modify' incTmp
-      srcVar <- arrayAccess id tIndex
+      srcVar <- arrayAccess id (Mir.Temp tIndex)
       modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar}]
 
-arrayAccess :: Id -> Mir.Temp -> State TranslationState Mir.Var
-arrayAccess id idxtemp = do
+arrayAccess :: Id -> Mir.Operand -> State TranslationState Mir.Var
+arrayAccess id (Mir.Temp idxtemp) = do
   symb <- gets (lookup id)
   case symb of
     Just Env.Symbol {alloc = Env.Local, ty = ArrTy {elemTy}} -> do
       return $ Mir.LocalWithOffset {id, offset = Mir.Temp idxtemp, mult = sizeOf elemTy}
+    Just Env.Symbol {alloc = Env.Argument} -> do
+      error "Array access on argument is not supported"
+    _ -> error $ "Undefined array: " ++ id
+arrayAccess id (Mir.ConstInt idx) = do
+  symb <- gets (lookup id)
+  case symb of
+    Just Env.Symbol {alloc = Env.Local, ty = ArrTy {elemTy}} -> do
+      return $ Mir.LocalWithOffset {id, offset = Mir.ConstInt idx, mult = sizeOf elemTy}
     Just Env.Symbol {alloc = Env.Argument} -> do
       error "Array access on argument is not supported"
     _ -> error $ "Undefined array: " ++ id
@@ -140,12 +151,8 @@ transStmt stmt
       -- registers to store the elements
       foldM_
         ( \idx elem -> do
-            offsetTemp <- gets (.tmp)
-            modify' incTmp
-            modify' (addInstsToBlock [Mir.Mov {dst = offsetTemp, srcOp = Mir.ConstInt idx}])
-
             -- access the array and store the element
-            dstVar <- arrayAccess id offsetTemp
+            dstVar <- arrayAccess id (Mir.ConstInt idx)
             transExp elem
             tElem <- gets (.tmp)
             modify' incTmp
@@ -155,12 +162,20 @@ transStmt stmt
         )
         0
         elems
+  | Ast.AssignArrStmt {id, index = Ast.Exp {exp = Ast.NumberExp {num}}, exp} <- stmt = do
+      -- Assigning to an array with a constant index
+      let idx = Mir.ConstInt num
+      dstVar <- arrayAccess id idx
+      transExp exp
+      tExp <- gets (.tmp)
+      modify' incTmp
+      modify' (addInstsToBlock [Mir.Store {dstVar, src = tExp}])
   | Ast.AssignArrStmt {id, index, exp} <- stmt = do
       transExp index
       tIndex <- gets (.tmp)
       modify' incTmp
 
-      dstVar <- arrayAccess id tIndex
+      dstVar <- arrayAccess id (Mir.Temp tIndex)
       transExp exp
       tExp <- gets (.tmp)
       modify' incTmp
