@@ -57,18 +57,16 @@ print_int_entry:
 	movq %rax, -16(%rbp)
 	movq 16(%rbp), %rax
 	pushq %rax
-	pushq $10
-	popq %rbx
+	movq $10, %rbx
 	popq %rax
 	cmpq %rbx, %rax
 	jl if_then_0
 	jmp if_else_1
 if_then_0:
-	pushq $48
 	movq 16(%rbp), %rax
 	pushq %rax
+	movq $48, %rax
 	popq %rbx
-	popq %rax
 	addq %rbx, %rax
 	pushq %rax
 	call print_char
@@ -77,8 +75,7 @@ if_then_0:
 if_else_1:
 	movq 16(%rbp), %rax
 	pushq %rax
-	pushq $10
-	popq %rbx
+	movq $10, %rbx
 	popq %rax
 	cqo
 	idivq %rbx
@@ -87,19 +84,17 @@ if_else_1:
 	popq %rbx
 	movq 16(%rbp), %rax
 	pushq %rax
-	pushq $10
-	popq %rbx
+	movq $10, %rbx
 	popq %rax
 	cqo
 	idivq %rbx
 	pushq %rdx
 	popq %rax
 	movq %rax, -16(%rbp)
-	pushq $48
 	movq -16(%rbp), %rax
 	pushq %rax
+	movq $48, %rax
 	popq %rbx
-	popq %rax
 	addq %rbx, %rax
 	pushq %rax
 	call print_char
@@ -143,8 +138,7 @@ while_loop_4:
 	movq %rax, -24(%rbp)
 	movq -16(%rbp), %rax
 	pushq %rax
-	pushq $1
-	popq %rbx
+	movq $1, %rbx
 	popq %rax
 	addq %rbx, %rax
 	pushq %rax

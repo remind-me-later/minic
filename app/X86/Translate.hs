@@ -189,9 +189,20 @@ translateInst inst
           -- Assuming tempOperand is already in rax
           pushTempToStack
           return ()
-  | Mir.BinOp {binop} <- inst = do
-      emitAsmInst Pop {op = Reg Rbx} -- Pop the second operand into rbx
-      emitAsmInst Pop {op = Reg Rax} -- Pop the first operand into rax
+  | Mir.BinOp {binop, left, right} <- inst = do
+      case (left, right) of
+        (Mir.ConstInt leftConst, Mir.ConstInt rightConst) -> do
+          emitAsmInst $ Mov {src = Imm leftConst, dst = Reg Rax}
+          emitAsmInst $ Mov {src = Imm rightConst, dst = Reg Rbx}
+        (Mir.Temp _, Mir.ConstInt value) -> do
+          emitAsmInst $ Mov {src = Imm value, dst = Reg Rbx} -- Move constant to rbx
+          emitAsmInst Pop {op = Reg Rax} -- Pop the first operand into rax
+        (Mir.ConstInt value, Mir.Temp _) -> do
+          emitAsmInst $ Mov {src = Imm value, dst = Reg Rax} -- Move constant to rax
+          emitAsmInst Pop {op = Reg Rbx} -- Pop the second operand into rbx
+        _ -> do
+          emitAsmInst Pop {op = Reg Rbx} -- Pop the second operand into rbx
+          emitAsmInst Pop {op = Reg Rax} -- Pop the first operand into rax
       case binop of
         TypeSystem.Add -> do
           emitAsmInst Add {src = Reg Rbx, dst = Reg Rax}
@@ -247,8 +258,12 @@ translateInst inst
           emitAsmInst Push {op = Reg Rdx}
           changeFlagOp Jnz -- Modulo operation changes the flags
       return ()
-  | Mir.UnaryOp {unop} <- inst = do
-      emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax
+  | Mir.UnaryOp {unop, unsrc} <- inst = do
+      case unsrc of
+        Mir.ConstInt value -> do
+          emitAsmInst $ Mov {src = Imm value, dst = Reg Rax} -- Move constant to rax
+        Mir.Temp _ -> do
+          emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax
       case unop of
         TypeSystem.UnarySub -> do
           emitAsmInst Neg {op = Reg Rax}

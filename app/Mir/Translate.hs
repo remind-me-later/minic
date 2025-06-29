@@ -66,16 +66,34 @@ transExp Ast.Exp {annot, exp}
       t <- gets (.tmp)
       modify' $ addInstsToBlock [Mir.Mov {dst = t, srcOp = Mir.ConstInt num}]
   | Ast.BinExp {left, op, right} <- exp = do
-      transExp left
-      lt <- gets (.tmp)
-      modify' incTmp
-      transExp right
-      rt <- gets (.tmp)
-      modify' $ addInstsToBlock [Mir.BinOp {dst = rt, binop = op, left = lt, right = rt}]
+      case (left.exp, right.exp) of
+        (Ast.NumberExp {num = l}, Ast.NumberExp {num = r}) -> do
+          t <- gets (.tmp)
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstInt l, right = Mir.ConstInt r}]
+        (Ast.NumberExp {num = l}, _) -> do
+          transExp right
+          t <- gets (.tmp)
+          modify' incTmp
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstInt l, right = Mir.Temp t}]
+        (_, Ast.NumberExp {num = r}) -> do
+          transExp left
+          t <- gets (.tmp)
+          modify' incTmp
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.Temp t, right = Mir.ConstInt r}]
+        _ -> do
+          transExp left
+          lt <- gets (.tmp)
+          modify' incTmp
+          transExp right
+          rt <- gets (.tmp)
+          modify' $ addInstsToBlock [Mir.BinOp {dst = rt, binop = op, left = Mir.Temp lt, right = Mir.Temp rt}]
+  | Ast.UnaryExp {unop, exp = Ast.Exp {exp = Ast.NumberExp {num}}} <- exp = do
+      t <- gets (.tmp)
+      modify' $ addInstsToBlock [Mir.UnaryOp {dst = t, unop = unop, unsrc = Mir.ConstInt num}]
   | Ast.UnaryExp {unop, exp} <- exp = do
       transExp exp
       t <- gets (.tmp)
-      modify' $ addInstsToBlock [Mir.UnaryOp {dst = t, unop = unop, src = t}]
+      modify' $ addInstsToBlock [Mir.UnaryOp {dst = t, unop = unop, unsrc = Mir.Temp t}]
   | Ast.Call {id, args} <- exp = do
       mapM_
         ( \arg -> do

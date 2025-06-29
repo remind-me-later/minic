@@ -44,8 +44,8 @@ instance Show Operand where
 
 data Inst
   = Mov {dst :: Temp, srcOp :: Operand}
-  | UnaryOp {dst :: Temp, unop :: UnaryOp, src :: Temp}
-  | BinOp {dst :: Temp, binop :: BinOp, left :: Temp, right :: Temp}
+  | UnaryOp {dst :: Temp, unop :: UnaryOp, unsrc :: Operand}
+  | BinOp {dst :: Temp, binop :: BinOp, left :: Operand, right :: Operand}
   | Load {dst :: Temp, srcVar :: Var}
   | Store {dstVar :: Var, src :: Temp}
   | Call {ret :: Maybe Temp, funId :: Id, argCount :: Int}
@@ -57,7 +57,7 @@ data Inst
 
 instance Show Inst where
   show Mov {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
-  show UnaryOp {dst, unop, src} = "t" ++ show dst ++ " = " ++ show unop ++ " t" ++ show src
+  show UnaryOp {dst, unop, unsrc} = "t" ++ show dst ++ " = " ++ show unop ++ " t" ++ show unsrc
   show BinOp {dst, binop, left, right} =
     "t" ++ show dst ++ " = " ++ "t" ++ show left ++ " " ++ show binop ++ " " ++ "t" ++ show right
   show Load {dst, srcVar} = "t" ++ show dst ++ " = " ++ show srcVar
