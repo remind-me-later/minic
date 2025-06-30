@@ -89,6 +89,21 @@ typeBinOp op Exp {annot = lty} Exp {annot = rty}
         _ -> do
           modify' (addError ("Unsupported operator for BoolTy: " ++ show op))
           return VoidTy
+  | (lty, rty) == (CharTy, CharTy) =
+      case op of
+        Add -> return CharTy
+        Sub -> return CharTy
+        Mul -> return CharTy
+        Div -> return CharTy
+        Equal -> return BoolTy
+        NotEqual -> return BoolTy
+        LessThan -> return BoolTy
+        GreaterThan -> return BoolTy
+        LessThanOrEqual -> return BoolTy
+        GreaterThanOrEqual -> return BoolTy
+        _ -> do
+          modify' (addError ("Unsupported operator for CharTy: " ++ show op))
+          return VoidTy
   | otherwise = do
       modify' (addError ("Type mismatch in operator: " ++ show lty ++ " " ++ show op ++ " " ++ show rty))
       return VoidTy
@@ -106,6 +121,12 @@ typeUnaryOp op Exp {annot}
         UnaryNot -> return BoolTy
         _ -> do
           modify' (addError ("Unsupported unary operator for BoolTy: " ++ show op))
+          return VoidTy
+  | annot == CharTy =
+      case op of
+        UnarySub -> return CharTy
+        _ -> do
+          modify' (addError ("Unsupported unary operator for CharTy: " ++ show op))
           return VoidTy
   | otherwise = do
       modify' (addError ("Type mismatch in unary operator: " ++ show annot ++ " " ++ show op))
@@ -126,6 +147,8 @@ typeExp Exp {exp}
           return Exp {annot = VoidTy, exp = IdExp {id}}
   | NumberExp {num} <- exp =
       return Exp {annot = IntTy, exp = NumberExp {num}}
+  | CharExp {char} <- exp =
+      return Exp {annot = CharTy, exp = CharExp {char}}
   | BinExp {left, op, right} <- exp = do
       left <- typeExp left
       right <- typeExp right

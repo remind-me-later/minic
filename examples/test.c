@@ -1,5 +1,5 @@
 extern void print_char(int c);
-
+extern void print(char c);
 // This function prints an integer to the console.
 void print_int(int n) {
     int i = 0;
@@ -24,9 +24,12 @@ int fact(int n) {
 }
 
 void main() {
+    char c = 'A';
     int arr[3] = {10, 0, fact(5)};
     arr[1] = 20;
     // arr[0] = 10;
+
+    print(c);
     print_int(arr[0]);
     print_char(32); // space
     print_int(arr[1]);

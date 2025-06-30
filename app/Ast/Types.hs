@@ -23,6 +23,9 @@ data ExpInner ea
   | NumberExp
       { num :: Int
       }
+  | CharExp
+      { char :: Char
+      }
   | IdExp
       { id :: Id
       }
@@ -40,6 +43,7 @@ instance (Show ea) => Show (ExpInner ea) where
   show (BinExp left op right) = "(" ++ show left ++ " " ++ show op ++ " " ++ show right ++ ")"
   show (UnaryExp unop exp) = show unop ++ show exp
   show (NumberExp num) = show num
+  show (CharExp char) = "'" ++ [char] ++ "'"
   show (IdExp id) = id
   show (Call id args) = id ++ "(" ++ unwords (map show args)
   show (ArrAccess id index) = id ++ "[" ++ show index ++ "]"

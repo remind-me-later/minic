@@ -5,6 +5,7 @@ type Id = String
 data Ty
   = IntTy
   | BoolTy
+  | CharTy
   | VoidTy
   | FunTy
       { args :: [Ty],
@@ -19,6 +20,7 @@ data Ty
 sizeOf :: Ty -> Int
 sizeOf IntTy = 8
 sizeOf BoolTy = 8
+sizeOf CharTy = 1
 sizeOf VoidTy = 0
 sizeOf (FunTy {args}) = sum (map sizeOf args)
 sizeOf (ArrTy {elemTy, size}) = sizeOf elemTy * size

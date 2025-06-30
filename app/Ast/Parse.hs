@@ -64,14 +64,24 @@ id =
 ty :: PC.Parser Ty
 ty =
   let parseInt = (keyword "int" $> IntTy)
+      parseChar = (keyword "char" $> CharTy)
       parseBool = (keyword "bool" $> BoolTy)
       parseVoid = (keyword "void" $> VoidTy)
-   in lex (parseInt <|> parseBool <|> parseVoid)
+   in lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
 
 num :: PC.Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
    in read <$> lex (PC.many1 (PC.satisfy isDigit))
+
+char :: PC.Parser Char
+char = do
+  let isChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ ['0' .. '9'] ++ [' ', '\'', '\\']
+   in lex $ do
+        _ <- PC.char '\''
+        c <- PC.satisfy isChar
+        _ <- PC.char '\''
+        return c
 
 exp :: PC.Parser RawExp
 exp = eqexp
@@ -81,11 +91,15 @@ exp = eqexp
         <|> PC.try arraccess
         <|> PC.try idexp
         <|> PC.try parenexp
+        <|> PC.try charexp
         <|> numexp
       where
         numexp = do
           num <- num
           return Exp {annot = (), exp = NumberExp {num}}
+        charexp = do
+          char <- char
+          return Exp {annot = (), exp = CharExp {char}}
         idexp = do
           id <- id
           return Exp {annot = (), exp = IdExp {id}}
@@ -219,7 +233,7 @@ stmt =
 
     whilestmt = do
       _ <- whilekw
-      cond <- exp
+      cond <- parens exp
       body <- block
       return WhileStmt {cond, body}
 
