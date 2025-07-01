@@ -183,9 +183,9 @@ popTempFromStack = emitAsmInst Pop {op = Reg Rax}
 
 translateInst :: Mir.Inst -> State TranslationState ()
 translateInst inst
-  | Mir.Mov {srcOp} <- inst = do
+  | Mir.Assign {src} <- inst = do
       -- Translate assignment instruction
-      case srcOp of
+      case src of
         Mir.ConstInt value -> do
           emitAsmInst Push {op = Imm value}
           return ()
@@ -265,8 +265,8 @@ translateInst inst
           emitAsmInst Push {op = Reg Rdx}
           changeFlagOp Jnz -- Modulo operation changes the flags
       return ()
-  | Mir.UnaryOp {unop, unsrc} <- inst = do
-      case unsrc of
+  | Mir.UnaryOp {unop, src} <- inst = do
+      case src of
         Mir.ConstInt value -> do
           emitAsmInst $ Mov {src = Imm value, dst = Reg Rax} -- Move constant to rax
         Mir.ConstChar value -> do
@@ -394,7 +394,7 @@ translateFun Mir.Fun {id, args, locals, cfg} = do
 
   translateCfg False cfg
 
-  -- mapM_ emitAsmInst functionEpilogue
+-- mapM_ emitAsmInst functionEpilogue
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {funs, externFuns, mainFun} = do

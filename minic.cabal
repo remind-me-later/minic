@@ -71,6 +71,8 @@ executable minic
                     Mir.Translate
                     Mir.Types
                     Mir.Liveness
+                    Mir.Interference
+                    Mir.Allocation
                     X86
                     X86.Translate
                     X86.Types

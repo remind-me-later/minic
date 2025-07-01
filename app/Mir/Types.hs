@@ -10,6 +10,12 @@ type Temp = Int
 
 type BlockId = String
 
+data Register = R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+availableRegisters :: [Register]
+availableRegisters = [R1 .. R8]
+
 data Var
   = Local {id :: Id}
   | LocalWithOffset {id :: Id, offset :: Operand, mult :: Int}
@@ -27,12 +33,16 @@ data Operand
   = ConstInt Int
   | ConstChar Char
   | Temp Temp
+  | RegOperand Register
+  | StackOperand Int
   deriving (Eq)
 
 instance Show Operand where
   show (ConstInt n) = "const " ++ show n
   show (ConstChar c) = "const " ++ show c
   show (Temp t) = "t" ++ show t
+  show (RegOperand r) = "reg " ++ show r
+  show (StackOperand n) = "stack " ++ show n
 
 data Terminator
   = Return {retVal :: Maybe Temp}
@@ -45,28 +55,28 @@ instance Show Terminator where
   show (Return (Just t)) = "return t" ++ show t
   show (Jump target) = "goto " ++ target
   show (CondJump cond trueBlockId falseBlockId) =
-    "if t" ++ show cond ++ " then goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
+    "if t" ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
 
 data Inst
-  = Mov {dst :: Temp, srcOp :: Operand}
-  | UnaryOp {dst :: Temp, unop :: UnaryOp, unsrc :: Operand}
-  | BinOp {dst :: Temp, binop :: BinOp, left :: Operand, right :: Operand}
-  | Load {dst :: Temp, srcVar :: Var}
-  | Store {dstVar :: Var, src :: Temp}
-  | Call {ret :: Maybe Temp, funId :: Id, argCount :: Int}
-  | Param {param :: Temp}
+  = Assign {dst :: Operand, src :: Operand}
+  | UnaryOp {dst :: Operand, unop :: UnaryOp, src :: Operand}
+  | BinOp {dst :: Operand, binop :: BinOp, left :: Operand, right :: Operand}
+  | Load {dst :: Operand, srcVar :: Var}
+  | Store {dstVar :: Var, src :: Operand}
+  | Call {ret :: Maybe Operand, funId :: Id, argCount :: Int}
+  | Param {param :: Operand}
   deriving (Eq)
 
 instance Show Inst where
-  show Mov {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
-  show UnaryOp {dst, unop, unsrc} = "t" ++ show dst ++ " = " ++ show unop ++ show unsrc
+  show Assign {dst, src} = show dst ++ " = " ++ show src
+  show UnaryOp {dst, unop, src} = show dst ++ " = " ++ show unop ++ show src
   show BinOp {dst, binop, left, right} =
-    "t" ++ show dst ++ " = " ++ show left ++ " " ++ show binop ++ " " ++ show right
-  show Load {dst, srcVar} = "t" ++ show dst ++ " = " ++ show srcVar
-  show Store {dstVar, src} = show dstVar ++ " = t" ++ show src
-  show Call {ret = Just t, funId, argCount} = "t" ++ show t ++ " = call " ++ funId ++ ", " ++ show argCount
+    show dst ++ " = " ++ show left ++ " " ++ show binop ++ " " ++ show right
+  show Load {dst, srcVar} = show dst ++ " = " ++ show srcVar
+  show Store {dstVar, src} = show dstVar ++ " = " ++ show src
+  show Call {ret = Just t, funId, argCount} = show t ++ " = call " ++ funId ++ ", " ++ show argCount
   show Call {ret = Nothing, funId, argCount} = "call " ++ funId ++ ", " ++ show argCount
-  show Param {param} = "param " ++ "t" ++ show param
+  show Param {param} = "param " ++ show param
 
 -- A Basic Block is a sequence of instructions that starts with a blockId
 -- and ends with a control flow instruction (Jump, CondJump, Return).

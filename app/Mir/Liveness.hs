@@ -1,12 +1,6 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Mir.Liveness
-  ( LivenessInfo (..),
-    LiveSet,
-    analyzeFunctionLiveness,
-    analyzeProgramLiveness,
-  )
-where
+module Mir.Liveness where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -45,25 +39,23 @@ instance Show LivenessInfo where
 -- Get all temporaries used (read) by an instruction
 getUsedTemps :: Inst -> Set Temp
 getUsedTemps inst = case inst of
-  Mov {srcOp} -> getOperandTemps srcOp
-  UnaryOp {unsrc = srcOp} -> getOperandTemps srcOp
+  Assign {src} -> getOperandTemps src
+  UnaryOp {src} -> getOperandTemps src
   BinOp {left, right} -> getOperandTemps left <> getOperandTemps right
   Load {} -> Set.empty -- variables, not temps
-  Store {src} -> Set.singleton src
+  Store {src} -> getOperandTemps src
   Call {} -> Set.empty -- args passed via Param instructions
-  Param {param} -> Set.singleton param
+  Param {param} -> getOperandTemps param
 
 -- Get temporaries defined (written) by an instruction
 getDefinedTemps :: Inst -> Set Temp
 getDefinedTemps inst = case inst of
-  Mov dst _ -> Set.singleton dst
-  UnaryOp dst _ _ -> Set.singleton dst
-  BinOp dst _ _ _ -> Set.singleton dst
-  Load dst _ -> Set.singleton dst
-  Store _ _ -> Set.empty
-  Call (Just ret) _ _ -> Set.singleton ret
-  Call Nothing _ _ -> Set.empty
-  Param _ -> Set.empty
+  Assign {dst} -> getOperandTemps dst
+  UnaryOp {dst} -> getOperandTemps dst
+  BinOp {dst} -> getOperandTemps dst
+  Load {dst} -> getOperandTemps dst
+  Call {ret = Just (Temp ret)} -> Set.singleton ret
+  _ -> Set.empty
 
 -- Get temporaries from operands
 getOperandTemps :: Operand -> Set Temp
@@ -171,7 +163,7 @@ processInstruction :: Inst -> (Set Temp, Set Temp) -> (Set Temp, Set Temp)
 processInstruction inst (used, defined) =
   let instUses = getUsedTemps inst
       instDefs = getDefinedTemps inst
-      -- Remove newly defined temps from used set, add new uses
+      -- ReAssigne newly defined temps from used set, add new uses
       newUsed = (used `Set.difference` instDefs) `Set.union` instUses
       newDefined = defined `Set.union` instDefs
    in (newUsed, newDefined)
