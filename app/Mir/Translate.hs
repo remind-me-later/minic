@@ -293,6 +293,8 @@ transStmt stmt
       let endBlockId = "while_end_" ++ show l
       modify' incBlockId
 
+      modify' $ terminateBlock Mir.Jump {target = condBlockId}
+
       modify' (setCurBlockId condBlockId)
       transExp cond
       t <- gets (.tmp)

@@ -107,20 +107,19 @@ if_end_2:
 	movq %rbp, %rsp
 	popq %rbp
 	ret
-	movq %rbp, %rsp
-	popq %rbp
-	ret
 fact:
 	pushq %rbp
 	movq %rsp, %rbp
 	subq $24, %rsp
-while_cond_3:
+fact_entry:
 	pushq $1
 	popq %rax
 	movq %rax, -24(%rbp)
 	pushq $2
 	popq %rax
 	movq %rax, -16(%rbp)
+	jmp while_cond_3
+while_cond_3:
 	movq -16(%rbp), %rax
 	pushq %rax
 	movq 16(%rbp), %rax
@@ -128,8 +127,8 @@ while_cond_3:
 	popq %rbx
 	popq %rax
 	cmpq %rbx, %rax
-	jle while_end_5
-	jmp while_cond_3
+	jle while_loop_4
+	jmp while_end_5
 while_loop_4:
 	movq -24(%rbp), %rax
 	pushq %rax
@@ -154,9 +153,6 @@ while_end_5:
 	movq -24(%rbp), %rax
 	pushq %rax
 	popq %rax
-	movq %rbp, %rsp
-	popq %rbp
-	ret
 	movq %rbp, %rsp
 	popq %rbp
 	ret

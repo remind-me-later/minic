@@ -313,7 +313,7 @@ translateTerminator terminator
   | Mir.CondJump {trueBlockId, falseBlockId} <- terminator = do
       jmpInstruction <-
         (gets (.lastJmpCond)) >>= \case
-          Just cond -> return $ JmpCond {cond = cond, label = trueBlockId}
+          Just cond -> return $ JmpCond {cond, label = trueBlockId}
           Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
       emitAsmInst $ Jmp {label = falseBlockId}
@@ -394,7 +394,7 @@ translateFun Mir.Fun {id, args, locals, cfg} = do
 
   translateCfg False cfg
 
-  mapM_ emitAsmInst functionEpilogue
+  -- mapM_ emitAsmInst functionEpilogue
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {funs, externFuns, mainFun} = do
