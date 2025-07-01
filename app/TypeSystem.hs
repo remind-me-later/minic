@@ -8,12 +8,12 @@ data Ty
   | CharTy
   | VoidTy
   | FunTy
-      { args :: [Ty],
-        retty :: Ty
+      { funTyArgs :: [Ty],
+        funTyRetTy :: Ty
       }
   | ArrTy
-      { elemTy :: Ty,
-        size :: Int
+      { arrTyElemTy :: Ty,
+        arrTySize :: Int
       }
   deriving (Show, Eq)
 
@@ -22,8 +22,8 @@ sizeOf IntTy = 8
 sizeOf BoolTy = 8
 sizeOf CharTy = 1
 sizeOf VoidTy = 0
-sizeOf (FunTy {args}) = sum (map sizeOf args)
-sizeOf (ArrTy {elemTy, size}) = sizeOf elemTy * size
+sizeOf (FunTy {funTyArgs}) = sum (map sizeOf funTyArgs)
+sizeOf (ArrTy {arrTyElemTy, arrTySize}) = sizeOf arrTyElemTy * arrTySize
 
 data BinOp
   = -- Arithmetic

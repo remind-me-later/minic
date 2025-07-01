@@ -43,25 +43,25 @@ data Op
   = Imm Int
   | Reg Reg
   | Mem
-      { base :: Reg,
-        index_scale :: Maybe (Reg, Int),
-        disp :: Int
+      { memBase :: Reg,
+        memIndexScale :: Maybe (Reg, Int),
+        memDisp :: Int
       }
   deriving (Eq)
 
 instance Show Op where
   show (Imm i) = '$' : show i
   show (Reg r) = show r
-  show Mem {base, disp = 0, index_scale = Nothing} = "(" ++ show base ++ ")"
-  show Mem {base, disp, index_scale = Nothing} = show disp ++ "(" ++ show base ++ ")"
-  show Mem {base, index_scale = Just (index, 1), disp = 0} =
-    "(" ++ show base ++ ", " ++ show index ++ ")"
-  show Mem {base, index_scale = Just (index, 1), disp} =
-    show disp ++ "(" ++ show base ++ ", " ++ show index ++ ")"
-  show Mem {base, index_scale = Just (index, scale), disp = 0} =
-    "(" ++ show base ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
-  show Mem {base, index_scale = Just (index, scale), disp} =
-    show disp ++ "(" ++ show base ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
+  show Mem {memBase, memDisp = 0, memIndexScale = Nothing} = "(" ++ show memBase ++ ")"
+  show Mem {memBase, memDisp, memIndexScale = Nothing} = show memDisp ++ "(" ++ show memBase ++ ")"
+  show Mem {memBase, memIndexScale = Just (index, 1), memDisp = 0} =
+    "(" ++ show memBase ++ ", " ++ show index ++ ")"
+  show Mem {memBase, memIndexScale = Just (index, 1), memDisp} =
+    show memDisp ++ "(" ++ show memBase ++ ", " ++ show index ++ ")"
+  show Mem {memBase, memIndexScale = Just (index, scale), memDisp = 0} =
+    "(" ++ show memBase ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
+  show Mem {memBase, memIndexScale = Just (index, scale), memDisp} =
+    show memDisp ++ "(" ++ show memBase ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
 
 data JmpCond
   = Jnz
@@ -85,47 +85,47 @@ instance Show JmpCond where
   show Jne = "jne"
 
 data Inst
-  = Mov {src :: Op, dst :: Op}
-  | Add {src :: Op, dst :: Op}
-  | Sub {src :: Op, dst :: Op}
-  | Imul {src :: Op, dst :: Op}
+  = Mov {movSrc :: Op, movDst :: Op}
+  | Add {addSrc :: Op, addDst :: Op}
+  | Sub {subSrc :: Op, subDst :: Op}
+  | Imul {imulSrc :: Op, imulDst :: Op}
   | -- Note: Idiv stores the quotient in rax and the remainder in rdx
-    Idiv {src :: Op}
+    Idiv {idivSrc :: Op}
   | Cqo -- Sign-extend rax into rdx before division
-  | And {src :: Op, dst :: Op}
-  | Or {src :: Op, dst :: Op}
-  | Xor {src :: Op, dst :: Op}
-  | Neg {op :: Op}
-  | Not {op :: Op}
-  | Cmp {src :: Op, dst :: Op}
-  | Push {op :: Op}
-  | Pop {op :: Op}
-  | Call {name :: String}
+  | And {andSrc :: Op, andDst :: Op}
+  | Or {orSrc :: Op, orDst :: Op}
+  | Xor {xorSrc :: Op, xorDst :: Op}
+  | Neg {negOp :: Op}
+  | Not {notOp :: Op}
+  | Cmp {cmpSrc :: Op, cmpDst :: Op}
+  | Push {pushOp :: Op}
+  | Pop {popOp :: Op}
+  | Call {callName :: String}
   | Ret
-  | Jmp {label :: String}
-  | JmpCond {cond :: JmpCond, label :: String}
-  | Label {label :: String}
+  | Jmp {jmpLabel :: String}
+  | JmpCond {jmpCond :: JmpCond, jmpCondLabel :: String}
+  | Label {labelName :: String}
   | Syscall
   deriving (Eq)
 
 instance Show Inst where
-  show Mov {src, dst} = "\tmovq " ++ show src ++ ", " ++ show dst
-  show Add {src, dst} = "\taddq " ++ show src ++ ", " ++ show dst
-  show Sub {src, dst} = "\tsubq " ++ show src ++ ", " ++ show dst
-  show Imul {src, dst} = "\timulq " ++ show src ++ ", " ++ show dst
-  show Idiv {src} = "\tidivq " ++ show src
+  show Mov {movSrc, movDst} = "\tmovq " ++ show movSrc ++ ", " ++ show movDst
+  show Add {addSrc, addDst} = "\taddq " ++ show addSrc ++ ", " ++ show addDst
+  show Sub {subSrc, subDst} = "\tsubq " ++ show subSrc ++ ", " ++ show subDst
+  show Imul {imulSrc, imulDst} = "\timulq " ++ show imulSrc ++ ", " ++ show imulDst
+  show Idiv {idivSrc} = "\tidivq " ++ show idivSrc
   show Cqo = "\tcqo"
-  show And {src, dst} = "\tandq " ++ show src ++ ", " ++ show dst
-  show Or {src, dst} = "\torq " ++ show src ++ ", " ++ show dst
-  show Xor {src, dst} = "\txorq " ++ show src ++ ", " ++ show dst
-  show Neg {op} = "\tnegq " ++ show op
-  show Not {op} = "\tnotq " ++ show op
-  show Cmp {src, dst} = "\tcmpq " ++ show src ++ ", " ++ show dst
-  show Push {op} = "\tpushq " ++ show op
-  show Pop {op} = "\tpopq " ++ show op
-  show Call {name} = "\tcall " ++ name
+  show And {andSrc, andDst} = "\tandq " ++ show andSrc ++ ", " ++ show andDst
+  show Or {orSrc, orDst} = "\torq " ++ show orSrc ++ ", " ++ show orDst
+  show Xor {xorSrc, xorDst} = "\txorq " ++ show xorSrc ++ ", " ++ show xorDst
+  show Neg {negOp} = "\tnegq " ++ show negOp
+  show Not {notOp} = "\tnotq " ++ show notOp
+  show Cmp {cmpSrc, cmpDst} = "\tcmpq " ++ show cmpSrc ++ ", " ++ show cmpDst
+  show Push {pushOp} = "\tpushq " ++ show pushOp
+  show Pop {popOp} = "\tpopq " ++ show popOp
+  show Call {callName} = "\tcall " ++ callName
   show Ret = "\tret"
-  show Jmp {label} = "\tjmp " ++ label
-  show JmpCond {cond, label} = "\t" ++ show cond ++ " " ++ label
-  show Label {label} = label ++ ":"
+  show Jmp {jmpLabel} = "\tjmp " ++ jmpLabel
+  show JmpCond {jmpCond, jmpCondLabel} = "\t" ++ show jmpCond ++ " " ++ jmpCondLabel
+  show Label {labelName} = labelName ++ ":"
   show Syscall = "\tsyscall"

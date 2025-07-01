@@ -10,30 +10,30 @@ import X86.Types
 
 functionPrologue :: String -> Int -> [Inst]
 functionPrologue name frameSize =
-  [ Label {label = name},
-    Push {op = Reg Rbp}, -- Save base pointer
-    Mov {src = Reg Rsp, dst = Reg Rbp}, -- Set base pointer to current stack pointer
-    Sub {src = Imm frameSize, dst = Reg Rsp} -- Allocate stack frame
+  [ Label {labelName = name},
+    Push {pushOp = Reg Rbp}, -- Save base pointer
+    Mov {movSrc = Reg Rsp, movDst = Reg Rbp}, -- Set base pointer to current stack pointer
+    Sub {subSrc = Imm frameSize, subDst = Reg Rsp} -- Allocate stack frame
   ]
 
 functionEpilogue :: [Inst]
 functionEpilogue =
-  [ Mov {src = Reg Rbp, dst = Reg Rsp}, -- Restore stack pointer
-    Pop {op = Reg Rbp}, -- Restore base pointer
+  [ Mov {movSrc = Reg Rbp, movDst = Reg Rsp}, -- Restore stack pointer
+    Pop {popOp = Reg Rbp}, -- Restore base pointer
     Ret -- Return from function
   ]
 
 mainFunctionPrologue :: Int -> [Inst]
 mainFunctionPrologue frameSize =
-  [ Label {label = "_start"},
-    Mov {src = Reg Rsp, dst = Reg Rbp}, -- Set base pointer to current stack pointer
-    Sub {src = Imm frameSize, dst = Reg Rsp} -- Allocate stack frame
+  [ Label {labelName = "_start"},
+    Mov {movSrc = Reg Rsp, movDst = Reg Rbp}, -- Set base pointer to current stack pointer
+    Sub {subSrc = Imm frameSize, subDst = Reg Rsp} -- Allocate stack frame
   ]
 
 mainFunctionEpilogue :: [Inst]
 mainFunctionEpilogue =
-  [ Mov {src = Imm 60, dst = Reg Rax}, -- syscall number for sys_exit
-    Xor {src = Reg Rdi, dst = Reg Rdi}, -- exit code 0
+  [ Mov {movSrc = Imm 60, movDst = Reg Rax}, -- syscall number for sys_exit
+    Xor {xorSrc = Reg Rdi, xorDst = Reg Rdi}, -- exit code 0
     Syscall -- exit the program
   ]
 
@@ -58,13 +58,19 @@ data TranslationState = TranslationState
   }
 
 instance Show TranslationState where
-  show ts = ts.fileHeader ++ "\n" ++ unlines (show <$> ts.assemblyCode)
+  show TranslationState {assemblyCode, lastJmpCond, fileHeader} =
+    fileHeader
+      ++ concatMap (\inst -> show inst ++ "\n") assemblyCode
+      ++ case lastJmpCond of
+        Just cond -> "Last jump condition: " ++ show cond ++ "\n"
+        Nothing -> "No last jump condition\n"
 
 changeFlagOp :: JmpCond -> State TranslationState ()
 changeFlagOp cond = modify' (\s -> s {lastJmpCond = Just cond})
 
 emitAsmInst :: Inst -> State TranslationState ()
-emitAsmInst code = modify' (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
+emitAsmInst code =
+  modify' (\s@TranslationState {assemblyCode} -> s {assemblyCode = assemblyCode ++ [code]})
 
 -- Convert MIR register to X86 register
 mirRegisterToX86 :: Mir.Register -> Reg
@@ -82,24 +88,24 @@ translateOperand :: Mir.Operand -> Op
 translateOperand (Mir.ConstInt n) = Imm n
 translateOperand (Mir.ConstChar c) = Imm (fromIntegral (fromEnum c))
 translateOperand (Mir.RegOperand reg) = Reg (mirRegisterToX86 reg)
-translateOperand (Mir.StackOperand offset) = Mem {base = Rbp, disp = offset, index_scale = Nothing}
+translateOperand (Mir.StackOperand offset) = Mem {memBase = Rbp, memDisp = offset, memIndexScale = Nothing}
 translateOperand (Mir.Temp _) = error "Temporary variables should be handled by register allocation"
 
 calculateFrameSize :: Mir.CFG -> Int
 calculateFrameSize cfg =
-  let allOperands = concatMap getStackOperands cfg.blocks
+  let allOperands = concatMap getStackOperands (Mir.cfgBlocks cfg)
       stackOffsets = [abs offset | Mir.StackOperand offset <- allOperands, offset < 0]
    in if null stackOffsets then 0 else maximum stackOffsets
 
 getStackOperands :: Mir.BasicBlock -> [Mir.Operand]
-getStackOperands Mir.BasicBlock {insts} = concatMap extractOperands insts
+getStackOperands Mir.BasicBlock {Mir.blockInsts} = concatMap extractOperands blockInsts
   where
-    extractOperands (Mir.Assign {dst, src}) = [dst, src]
-    extractOperands (Mir.BinOp {dst, left, right}) = [dst, left, right]
-    extractOperands (Mir.UnaryOp {dst, src}) = [dst, src]
-    extractOperands (Mir.Call {ret = Just retOperand}) = [retOperand]
-    extractOperands (Mir.Call {ret = Nothing}) = []
-    extractOperands (Mir.Param {param}) = [param]
+    extractOperands (Mir.Assign {Mir.instDst, Mir.instSrc}) = [instDst, instSrc]
+    extractOperands (Mir.BinOp {Mir.instDst, Mir.instLeft, Mir.instRight}) = [instDst, instLeft, instRight]
+    extractOperands (Mir.UnaryOp {Mir.instDst, Mir.instSrc}) = [instDst, instSrc]
+    extractOperands (Mir.Call {Mir.callRet = Just retOperand}) = [retOperand]
+    extractOperands (Mir.Call {Mir.callRet = Nothing}) = []
+    extractOperands (Mir.Param {Mir.paramOperand}) = [paramOperand]
 
 -- Load operand value into a specific register
 loadOperandToReg :: Mir.Operand -> Reg -> State TranslationState ()
@@ -107,179 +113,179 @@ loadOperandToReg operand targetReg = do
   let src = translateOperand operand
   case src of
     Reg srcReg | srcReg == targetReg -> return () -- Already in target register
-    _ -> emitAsmInst $ Mov {src, dst = Reg targetReg}
+    _ -> emitAsmInst $ Mov {movSrc = src, movDst = Reg targetReg}
 
 translateInst :: Mir.Inst -> State TranslationState ()
 translateInst inst
-  | Mir.Assign {dst, src} <- inst = do
-      let dstOp = translateOperand dst
-      let srcOp = translateOperand src
+  | Mir.Assign {Mir.instDst, Mir.instSrc} <- inst = do
+      let dstOp = translateOperand instDst
+      let srcOp = translateOperand instSrc
       case (dstOp, srcOp) of
-        (Reg {}, _) -> emitAsmInst $ Mov {src = srcOp, dst = dstOp}
-        (Mem {}, Reg {}) -> emitAsmInst $ Mov {src = srcOp, dst = dstOp}
+        (Reg {}, _) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
+        (Mem {}, Reg {}) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
         (Mem {}, _) -> do
           -- Need to go through a register for memory-to-memory moves
-          emitAsmInst $ Mov {src = srcOp, dst = Reg Rax}
-          emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
+          emitAsmInst $ Mov {movSrc = srcOp, movDst = Reg Rax}
+          emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
         _ -> error "Invalid assignment operands"
-  | Mir.BinOp {dst, binop, left, right} <- inst = do
-      let dstOp = translateOperand dst
-      loadOperandToReg left Rax
-      let rightOp = translateOperand right
+  | Mir.BinOp {Mir.instDst, Mir.instBinop, Mir.instLeft, Mir.instRight} <- inst = do
+      let dstOp = translateOperand instDst
+      loadOperandToReg instLeft Rax
+      let rightOp = translateOperand instRight
 
-      case binop of
+      case instBinop of
         TypeSystem.Add -> do
-          emitAsmInst Add {src = rightOp, dst = Reg Rax}
+          emitAsmInst Add {addSrc = rightOp, addDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Sub -> do
-          emitAsmInst Sub {src = rightOp, dst = Reg Rax}
+          emitAsmInst Sub {subSrc = rightOp, subDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Mul -> do
-          emitAsmInst Imul {src = rightOp, dst = Reg Rax}
+          emitAsmInst Imul {imulSrc = rightOp, imulDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Div -> do
           emitAsmInst Cqo
 
           case rightOp of
             i@Imm {} -> do
-              emitAsmInst Mov {src = i, dst = Reg Rbx}
-              emitAsmInst Idiv {src = Reg Rbx}
-            _ -> emitAsmInst Idiv {src = rightOp}
+              emitAsmInst Mov {movSrc = i, movDst = Reg Rbx}
+              emitAsmInst Idiv {idivSrc = Reg Rbx}
+            _ -> emitAsmInst Idiv {idivSrc = rightOp}
           changeFlagOp Jnz
         TypeSystem.Equal -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Je
         TypeSystem.NotEqual -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Jne
         TypeSystem.LessThan -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Jl
         TypeSystem.LessThanOrEqual -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Jle
         TypeSystem.GreaterThan -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Jg
         TypeSystem.GreaterThanOrEqual -> do
-          emitAsmInst Cmp {src = rightOp, dst = Reg Rax}
+          emitAsmInst Cmp {cmpSrc = rightOp, cmpDst = Reg Rax}
           changeFlagOp Jge
         TypeSystem.And -> do
-          emitAsmInst And {src = rightOp, dst = Reg Rax}
+          emitAsmInst And {andSrc = rightOp, andDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Or -> do
-          emitAsmInst Or {src = rightOp, dst = Reg Rax}
+          emitAsmInst Or {orSrc = rightOp, orDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Xor -> do
-          emitAsmInst Xor {src = rightOp, dst = Reg Rax}
+          emitAsmInst Xor {xorSrc = rightOp, xorDst = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.Mod -> do
           emitAsmInst Cqo
 
           case rightOp of
             i@Imm {} -> do
-              emitAsmInst Mov {src = i, dst = Reg Rbx}
-              emitAsmInst Idiv {src = Reg Rbx}
-            _ -> emitAsmInst Idiv {src = rightOp}
+              emitAsmInst Mov {movSrc = i, movDst = Reg Rbx}
+              emitAsmInst Idiv {idivSrc = Reg Rbx}
+            _ -> emitAsmInst Idiv {idivSrc = rightOp}
 
-          emitAsmInst $ Mov {src = Reg Rdx, dst = Reg Rax} -- Move remainder to result
+          emitAsmInst $ Mov {movSrc = Reg Rdx, movDst = Reg Rax} -- Move remainder to result
           changeFlagOp Jnz
 
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
-        Reg {} -> emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
-        _ -> emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
-  | Mir.UnaryOp {dst, unop, src} <- inst = do
-      let dstOp = translateOperand dst
-      loadOperandToReg src Rax
+        Reg {} -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+        _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+  | Mir.UnaryOp {Mir.instDst, Mir.instUnop, Mir.instSrc} <- inst = do
+      let dstOp = translateOperand instDst
+      loadOperandToReg instSrc Rax
 
-      case unop of
+      case instUnop of
         TypeSystem.UnarySub -> do
-          emitAsmInst Neg {op = Reg Rax}
+          emitAsmInst Neg {negOp = Reg Rax}
           changeFlagOp Jnz
         TypeSystem.UnaryNot -> do
-          emitAsmInst Not {op = Reg Rax}
+          emitAsmInst Not {notOp = Reg Rax}
           changeFlagOp Jz
 
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
-        _ -> emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
-  | Mir.Call {funId, argCount, ret} <- inst = do
-      emitAsmInst $ Call {name = funId}
+        _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+  | Mir.Call {Mir.callFunId, Mir.callArgCount, Mir.callRet} <- inst = do
+      emitAsmInst $ Call {callName = callFunId}
       -- Remove arguments from the stack (if using stack calling convention)
-      forM_ [1 .. argCount] $ \_ -> emitAsmInst Pop {op = Reg Rbx}
-      case ret of
+      forM_ [1 .. callArgCount] $ \_ -> emitAsmInst Pop {popOp = Reg Rbx}
+      case callRet of
         Just retOperand -> do
           let retOp = translateOperand retOperand
           case retOp of
             Reg retReg | retReg == Rax -> return () -- Already in place
-            _ -> emitAsmInst $ Mov {src = Reg Rax, dst = retOp}
+            _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = retOp}
         Nothing -> return ()
-  | Mir.Param {param} <- inst = do
-      let paramOp = translateOperand param
-      emitAsmInst $ Push {op = paramOp}
+  | Mir.Param {Mir.paramOperand} <- inst = do
+      let paramOp = translateOperand paramOperand
+      emitAsmInst $ Push {pushOp = paramOp}
 
 translateTerminator :: Mir.Terminator -> State TranslationState ()
 translateTerminator terminator
-  | Mir.Return {retVal} <- terminator = do
-      case retVal of
+  | Mir.Return {Mir.retOperand} <- terminator = do
+      case retOperand of
         Just retTemp -> do
           loadOperandToReg retTemp Rax
           return ()
         Nothing -> return ()
       mapM_ emitAsmInst functionEpilogue
-  | Mir.Jump {target} <- terminator = emitAsmInst $ Jmp {label = target}
-  | Mir.CondJump {trueBlockId, falseBlockId} <- terminator = do
+  | Mir.Jump {Mir.jumpTarget} <- terminator = emitAsmInst $ Jmp {jmpLabel = jumpTarget}
+  | Mir.CondJump {Mir.condTrueBlockId, Mir.condFalseBlockId} <- terminator = do
       jmpInstruction <-
-        (gets (.lastJmpCond)) >>= \case
-          Just condType -> return $ JmpCond {cond = condType, label = trueBlockId}
+        gets lastJmpCond >>= \case
+          Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBlockId}
           Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
-      emitAsmInst $ Jmp {label = falseBlockId}
+      emitAsmInst $ Jmp {jmpLabel = condFalseBlockId}
 
 translateBasicBlock :: Bool -> Bool -> Mir.BasicBlock -> State TranslationState ()
-translateBasicBlock isEntryPoint isMain Mir.BasicBlock {blockId, insts, terminator} = do
+translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBlockId, Mir.blockInsts, Mir.blockTerminator} = do
   unless isEntryPoint $ do
-    emitAsmInst Label {label = blockId}
-  mapM_ translateInst insts
-  unless isMain $ translateTerminator terminator
+    emitAsmInst Label {labelName = cfgBlockId}
+  mapM_ translateInst blockInsts
+  unless isMain $ translateTerminator blockTerminator
 
 translateCfg :: Bool -> Mir.CFG -> State TranslationState ()
-translateCfg isMain Mir.CFG {blocks} = do
+translateCfg isMain Mir.CFG {Mir.cfgBlocks} = do
   -- FIXME: should not rely on basic block order
-  let entryBlock = head blocks
+  let entryBlock = head cfgBlocks
   translateBasicBlock True isMain entryBlock
-  forM_ (tail blocks) $ \block ->
+  forM_ (tail cfgBlocks) $ \block ->
     translateBasicBlock False isMain block
 
 translateMainFun :: Mir.Fun -> State TranslationState ()
-translateMainFun Mir.Fun {cfg} = do
-  mapM_ emitAsmInst (mainFunctionPrologue (calculateFrameSize cfg))
+translateMainFun Mir.Fun {Mir.funCfg} = do
+  mapM_ emitAsmInst (mainFunctionPrologue (calculateFrameSize funCfg))
 
-  translateCfg True cfg
+  translateCfg True funCfg
 
   mapM_ emitAsmInst mainFunctionEpilogue
 
 translateFun :: Mir.Fun -> State TranslationState ()
-translateFun Mir.Fun {id, cfg} = do
-  mapM_ emitAsmInst (functionPrologue id (calculateFrameSize cfg))
+translateFun Mir.Fun {Mir.funId, Mir.funCfg} = do
+  mapM_ emitAsmInst (functionPrologue funId (calculateFrameSize funCfg))
 
   -- No need to calculate offsets - they're in the StackOperands
-  translateCfg False cfg
+  translateCfg False funCfg
 
 translateProgram' :: Mir.Program -> State TranslationState ()
-translateProgram' Mir.Program {funs, externFuns, mainFun} = do
-  modify' (\s -> s {fileHeader = makeFileHeader ((.externId) <$> externFuns)})
+translateProgram' Mir.Program {Mir.programFuns, Mir.programExternFuns, Mir.programMainFun} = do
+  modify' (\s -> s {fileHeader = makeFileHeader (Mir.externId <$> programExternFuns)})
 
   -- translate main function
-  forM_ mainFun translateMainFun
+  forM_ programMainFun translateMainFun
   -- translate functions
-  mapM_ translateFun funs
+  mapM_ translateFun programFuns
 
 translateProgram :: Mir.Program -> String
-translateProgram program = show finalState
+translateProgram program = tsToAssemblyCode finalState
   where
     initialState =
       TranslationState
@@ -289,3 +295,7 @@ translateProgram program = show finalState
         }
 
     (_, finalState) = runState (translateProgram' program) initialState
+
+    tsToAssemblyCode :: TranslationState -> String
+    tsToAssemblyCode TranslationState {assemblyCode, fileHeader} =
+      fileHeader ++ concatMap (\inst -> show inst ++ "\n") assemblyCode

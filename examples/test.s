@@ -5,7 +5,6 @@
 .type print_char, @function
 .extern print
 .type print, @function
-
 _start:
 	movq %rsp, %rbp
 	subq $24, %rsp

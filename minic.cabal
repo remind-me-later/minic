@@ -79,11 +79,7 @@ executable minic
                     TypeSystem
 
     -- LANGUAGE extensions used by modules in this package.
-    default-extensions: DuplicateRecordFields,
-                        OverloadedRecordDot,
-                        LambdaCase,
-                        NoFieldSelectors,
-                        DisambiguateRecordFields,
+    default-extensions: LambdaCase,
                         Strict
 
     -- Other library packages from which modules are imported.

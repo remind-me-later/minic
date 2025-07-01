@@ -51,8 +51,8 @@ findAvailableRegister graph temp assignment =
 newtype SpillLocation = StackSlot Int deriving (Eq, Ord, Show)
 
 data AllocationResult = AllocationResult
-  { registers :: RegisterAssignment,
-    spilled :: Map Temp SpillLocation
+  { allocRegisters :: RegisterAssignment,
+    allocSpilled :: Map Temp SpillLocation
   }
   deriving (Show)
 
@@ -61,7 +61,7 @@ allocateRegisters :: CFG -> LivenessInfo -> AllocationResult
 allocateRegisters cfg liveness =
   let interferenceGraph = buildInterferenceGraph cfg liveness
    in case colorGraph interferenceGraph of
-        Just assignment -> AllocationResult {registers = assignment, spilled = Map.empty}
+        Just assignment -> AllocationResult {allocRegisters = assignment, allocSpilled = Map.empty}
         Nothing -> allocateWithSpilling cfg liveness interferenceGraph
 
 -- Simple spilling strategy - spill highest degree nodes
@@ -72,7 +72,7 @@ allocateWithSpilling cfg _liveness graph =
       spillAssignment = Map.fromList $ zip spillCandidates (map StackSlot [0 ..])
       reducedGraph = reAssigneSpilledFromGraph spillCandidates graph
    in case colorGraph reducedGraph of
-        Just regAssignment -> AllocationResult {registers = regAssignment, spilled = spillAssignment}
+        Just regAssignment -> AllocationResult {allocRegisters = regAssignment, allocSpilled = spillAssignment}
         Nothing -> error "Still can't color after spilling" -- Need more sophisticated spilling
 
 -- Select temps to spill (simple heuristic: highest degree)
@@ -93,48 +93,48 @@ reAssigneSpilledFromGraph spilled graph =
 -- Apply register allocation to transform MIR
 applyAllocation :: AllocationResult -> Fun -> Fun
 applyAllocation allocation fun =
-  fun {cfg = transformCFG allocation fun.cfg}
+  fun {funCfg = transformCFG allocation (funCfg fun)}
 
 transformCFG :: AllocationResult -> CFG -> CFG
 transformCFG allocation cfg =
-  cfg {blocks = map (transformBlock allocation) cfg.blocks}
+  cfg {cfgBlocks = map (transformBlock allocation) (cfgBlocks cfg)}
 
 transformBlock :: AllocationResult -> BasicBlock -> BasicBlock
 transformBlock allocation block =
   block
-    { insts = map (transformInst allocation) block.insts,
-      terminator = transformTerminator allocation block.terminator
+    { blockInsts = map (transformInst allocation) (blockInsts block),
+      blockTerminator = transformTerminator allocation (blockTerminator block)
     }
 
 transformInst :: AllocationResult -> Inst -> Inst
 transformInst allocation inst = case inst of
-  Assign {dst, src} ->
+  Assign {instDst, instSrc} ->
     Assign
-      { dst = transformOperand allocation dst, -- Transform destination!
-        src = transformOperand allocation src
+      { instDst = transformOperand allocation instDst,
+        instSrc = transformOperand allocation instSrc
       }
-  UnaryOp {dst, unop, src} ->
+  UnaryOp {instDst, instUnop, instSrc} ->
     UnaryOp
-      { dst = transformOperand allocation dst, -- Transform destination!
-        unop = unop,
-        src = transformOperand allocation src
+      { instDst = transformOperand allocation instDst,
+        instUnop = instUnop,
+        instSrc = transformOperand allocation instSrc
       }
-  BinOp {dst, binop, left, right} ->
+  BinOp {instDst, instBinop, instLeft, instRight} ->
     BinOp
-      { dst = transformOperand allocation dst, -- Transform destination!
-        binop = binop,
-        left = transformOperand allocation left,
-        right = transformOperand allocation right
+      { instDst = transformOperand allocation instDst,
+        instBinop = instBinop,
+        instLeft = transformOperand allocation instLeft,
+        instRight = transformOperand allocation instRight
       }
-  Call {ret, funId, argCount} ->
+  Call {callRet, callFunId, callArgCount} ->
     Call
-      { ret = fmap (transformOperand allocation) ret, -- Transform return operand
-        funId = funId,
-        argCount = argCount
+      { callRet = fmap (transformOperand allocation) callRet,
+        callFunId = callFunId,
+        callArgCount = callArgCount
       }
-  Param {param} ->
+  Param {paramOperand} ->
     Param
-      { param = transformOperand allocation param -- Transform parameter operand
+      { paramOperand = transformOperand allocation paramOperand
       }
 
 -- And for bare Temp fields, you might want a separate function
@@ -148,21 +148,21 @@ transformTemp allocation temp =
 
 transformTerminator :: AllocationResult -> Terminator -> Terminator
 transformTerminator _allocation terminator = case terminator of
-  Return {retVal} -> Return {retVal = fmap (transformOperand _allocation) retVal}
-  Jump {target} -> Jump {target = target} -- No transformation needed for Jump
-  CondJump {cond, trueBlockId, falseBlockId} ->
+  Return {retOperand} -> Return {retOperand = fmap (transformOperand _allocation) retOperand}
+  Jump {jumpTarget} -> Jump {jumpTarget = jumpTarget} -- No transformation needed for Jump
+  CondJump {condOperand, condTrueBlockId, condFalseBlockId} ->
     CondJump
-      { cond = transformOperand _allocation cond,
-        trueBlockId = trueBlockId,
-        falseBlockId = falseBlockId
+      { condOperand = transformOperand _allocation condOperand,
+        condTrueBlockId = condTrueBlockId,
+        condFalseBlockId = condFalseBlockId
       }
 
 -- Transform operands based on allocation
 transformOperand :: AllocationResult -> Operand -> Operand
 transformOperand allocation (Temp t) =
-  case Map.lookup t allocation.registers of
+  case Map.lookup t (allocRegisters allocation) of
     Just reg -> RegOperand reg -- Need to add this to Operand type
-    Nothing -> case Map.lookup t allocation.spilled of
+    Nothing -> case Map.lookup t (allocSpilled allocation) of
       Just (StackSlot slot) -> StackOperand slot -- Need to add this too
       Nothing -> error $ "Unallocated temporary: " ++ show t
 transformOperand _ op = op
@@ -170,14 +170,14 @@ transformOperand _ op = op
 allocateFunction :: Fun -> Fun
 allocateFunction fun =
   let liveness = analyzeFunctionLiveness fun
-      allocation = allocateRegisters fun.cfg liveness
+      allocation = allocateRegisters (funCfg fun) liveness
    in applyAllocation allocation fun
 
 allocateProgram :: Program -> Program
-allocateProgram p@Program {funs, mainFun = Just mainFun} =
-  let allocatedFuns = map allocateFunction funs
+allocateProgram p@Program {programFuns, programMainFun = Just mainFun} =
+  let allocatedFuns = map allocateFunction programFuns
       allocatedMain = allocateFunction mainFun
-   in p {funs = allocatedFuns, mainFun = Just allocatedMain}
-allocateProgram p@Program {funs, mainFun = Nothing} =
-  let allocatedFuns = map allocateFunction funs
-   in p {funs = allocatedFuns, mainFun = Nothing}
+   in p {programFuns = allocatedFuns, programMainFun = Just allocatedMain}
+allocateProgram p@Program {programFuns, programMainFun = Nothing} =
+  let allocatedFuns = map allocateFunction programFuns
+   in p {programFuns = allocatedFuns, programMainFun = Nothing}

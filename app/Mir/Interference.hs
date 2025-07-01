@@ -17,16 +17,16 @@ buildInterferenceGraph :: CFG -> LivenessInfo -> InterferenceGraph
 buildInterferenceGraph cfg liveness =
   let allTemps = getAllTemps cfg
       initialGraph = Map.fromList [(t, Set.empty) | t <- Set.toList allTemps]
-   in foldr (addBlockInterferences liveness) initialGraph cfg.blocks
+   in foldr (addBlockInterferences liveness) initialGraph (cfgBlocks cfg)
 
 -- Get all temporaries used in a CFG
 getAllTemps :: CFG -> Set Temp
 getAllTemps cfg =
-  Set.unions [getBlockTemps block | block <- cfg.blocks]
+  Set.unions [getBlockTemps block | block <- cfgBlocks cfg]
   where
     getBlockTemps block =
-      let instTemps = Set.unions [getInstTemps inst | inst <- block.insts]
-          termTemps = getTerminatorUses block.terminator
+      let instTemps = Set.unions [getInstTemps inst | inst <- blockInsts block]
+          termTemps = getTerminatorUses (blockTerminator block)
        in instTemps <> termTemps
 
     getInstTemps inst = getUsedTemps inst <> getDefinedTemps inst
@@ -34,12 +34,12 @@ getAllTemps cfg =
 -- Add interferences for a single block
 addBlockInterferences :: LivenessInfo -> BasicBlock -> InterferenceGraph -> InterferenceGraph
 addBlockInterferences liveness block graph =
-  let blockId' = block.blockId
-      liveOutSet = Map.findWithDefault Set.empty blockId' liveness.liveOut
+  let blockId' = cfgBlockId block
+      liveOutSet = Map.findWithDefault Set.empty blockId' (livenessOut liveness)
       -- Add interferences at block exit
       graphWithExit = addInterferences liveOutSet graph
    in -- Process instructions backwards
-      foldr (addInstInterferences liveness blockId') graphWithExit (reverse block.insts)
+      foldr (addInstInterferences liveness blockId') graphWithExit (reverse (blockInsts block))
 
 -- Add interferences for a single instruction
 addInstInterferences :: LivenessInfo -> BlockId -> Inst -> InterferenceGraph -> InterferenceGraph

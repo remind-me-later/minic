@@ -104,34 +104,34 @@ exp = eqexp
         <|> numexp
       where
         numexp = do
-          num <- num
-          return Exp {annot = (), exp = NumberExp {num}}
+          numberValue <- num
+          return Exp {expAnnot = (), expInner = NumberExp {numberValue}}
         charexp = do
-          char <- char
-          return Exp {annot = (), exp = CharExp {char}}
+          charValue <- char
+          return Exp {expAnnot = (), expInner = CharExp {charValue}}
         idexp = do
-          id <- id
-          return Exp {annot = (), exp = IdExp {id}}
+          idName <- id
+          return Exp {expAnnot = (), expInner = IdExp {idName}}
         parenexp = parens exp
         callexp = do
-          id <- id
-          args <- parens (commaSep exp)
-          return Exp {annot = (), exp = Call {id, args}}
+          callId <- id
+          callArgs <- parens (commaSep exp)
+          return Exp {expAnnot = (), expInner = Call {callId, callArgs}}
         arraccess = do
-          id <- id
-          index <- brackets exp
-          return Exp {annot = (), exp = ArrAccess {id, index}}
+          arrId <- id
+          arrIndex <- brackets exp
+          return Exp {expAnnot = (), expInner = ArrAccess {arrId, arrIndex}}
 
     unaryexp = do
       op <- optional $ PC.try (symbol "-" $> UnarySub) <|> (symbol "!" $> UnaryNot)
       case op of
-        Just unop -> do
+        Just unaryOp -> do
           e <- PC.try unaryexp <|> factor
-          return Exp {annot = (), exp = UnaryExp {unop, exp = e}}
+          return Exp {expAnnot = (), expInner = UnaryExp {unaryOp, unaryExp = e}}
         Nothing -> factor
 
     mulexp = do
-      left <- unaryexp
+      binLeft <- unaryexp
       maybeOp <-
         optional
           ( PC.try (symbol "*") $> Mul
@@ -139,13 +139,13 @@ exp = eqexp
               <|> symbol "%" $> Mod
           )
       case maybeOp of
-        Just op -> do
-          right <- mulexp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
-        Nothing -> return left
+        Just binOp -> do
+          binRight <- mulexp
+          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+        Nothing -> return binLeft
 
     addsubexp = do
-      left <- mulexp
+      binLeft <- mulexp
       maybeOp <-
         optional
           ( PC.try
@@ -153,13 +153,13 @@ exp = eqexp
               <|> symbol "-" $> Sub
           )
       case maybeOp of
-        Just op -> do
-          right <- addsubexp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
-        Nothing -> return left
+        Just binOp -> do
+          binRight <- addsubexp
+          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+        Nothing -> return binLeft
 
     eqexp = do
-      left <- addsubexp
+      binLeft <- addsubexp
       maybeOp <-
         optional
           ( PC.try (symbol "==" $> Equal)
@@ -170,16 +170,16 @@ exp = eqexp
               <|> symbol ">" $> GreaterThan
           )
       case maybeOp of
-        Just op -> do
-          right <- eqexp
-          return Exp {annot = (), exp = BinExp {left, op, right}}
-        Nothing -> return left
+        Just binOp -> do
+          binRight <- eqexp
+          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+        Nothing -> return binLeft
 
 vardef :: PC.Parser VarDef
 vardef = do
-  ty <- ty
-  id <- id
-  return VarDef {id, ty}
+  varDefTy <- ty
+  varDefId <- id
+  return VarDef {varDefId, varDefTy}
 
 stmt :: PC.Parser RawStmt
 stmt =
@@ -193,84 +193,84 @@ stmt =
     <|> expstmt
   where
     letstmt = do
-      vardef <- vardef
+      letVarDef <- vardef
       _ <- symbol "="
-      exp <- exp
+      letExp <- exp
       _ <- symbol ";"
-      return $ LetStmt {vardef, exp}
+      return $ LetStmt {letVarDef, letExp}
 
     letarrstmt = do
-      vardef <- vardef
-      size <- brackets num
+      letArrVarDef <- vardef
+      letArrSize <- brackets num
       _ <- symbol "="
-      elems <- braces (commaSep exp)
+      letArrElems <- braces (commaSep exp)
       _ <- symbol ";"
-      return $ LetArrStmt {vardef, size, elems}
+      return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems}
 
     assignstmt = do
-      id <- id
+      assignId <- id
       _ <- symbol "="
-      exp <- exp
+      assignExp <- exp
       _ <- symbol ";"
-      return $ AssignStmt {id, exp}
+      return $ AssignStmt {assignId, assignExp}
 
     assignarrstmt = do
-      id <- id
-      index <- brackets exp
+      assignArrId <- id
+      assignArrIndex <- brackets exp
       _ <- symbol "="
-      exp <- exp
+      assignArrExp <- exp
       _ <- symbol ";"
-      return $ AssignArrStmt {id, index, exp}
+      return $ AssignArrStmt {assignArrId, assignArrIndex, assignArrExp}
 
     retstmt = do
       _ <- returnkw
-      retexp <- optional exp
+      returnExp <- optional exp
       _ <- symbol ";"
-      return $ ReturnStmt {retexp}
+      return $ ReturnStmt {returnExp}
 
     expstmt = do
-      exp <- exp
+      stmtExp <- exp
       _ <- symbol ";"
-      return ExpStmt {exp}
+      return ExpStmt {stmtExp}
 
     ifstmt = do
       _ <- ifkw
-      cond <- parens exp
+      ifCond <- parens exp
       ifBody <- block
-      elseBody <- optional (elsekw *> block)
-      return $ IfStmt {cond, ifBody, elseBody}
+      ifElseBody <- optional (elsekw *> block)
+      return $ IfStmt {ifCond, ifBody, ifElseBody}
 
     whilestmt = do
       _ <- whilekw
-      cond <- parens exp
-      body <- block
-      return WhileStmt {cond, body}
+      whileCond <- parens exp
+      whileBody <- block
+      return WhileStmt {whileCond, whileBody}
 
 block :: PC.Parser RawBlock
 block = do
-  stmts <- braces (many stmt)
-  return $ Block {annot = (), stmts}
+  blockStmts <- braces (many stmt)
+  return $ Block {blockAnnot = (), blockStmts}
 
 fun :: PC.Parser RawFun
 fun = do
-  retty <- ty
-  id <- id
-  args <- parens (commaSep vardef)
-  body <- block
-  return Fun {id, args, retty, body}
+  funRetTy <- ty
+  funId <- id
+  funArgs <- parens (commaSep vardef)
+  funBody <- block
+  return Fun {funId, funArgs, funRetTy, funBody}
 
 externfun :: PC.Parser RawExternFun
 externfun = do
   _ <- keyword "extern"
-  retty <- ty
-  id <- id
-  args <- parens (commaSep vardef)
+  externFunRetTy <- ty
+  externFunId <- id
+  externFunArgs <- parens (commaSep vardef)
   _ <- symbol ";"
   return
     ExternFun
-      { id,
-        args = (.ty) <$> args,
-        retty
+      { externFunId,
+        externFunArgs = varDefTy <$> externFunArgs,
+        externFunRetTy
       }
 
 program :: PC.Parser RawProgram
@@ -279,15 +279,15 @@ program = do
   defs <- many (PC.try (Left <$> fun) <|> (Right <$> externfun))
   _ <- PC.eof
 
-  let initialProgram = Program {annot = (), funcs = [], externFuns = [], mainFun = Nothing}
+  let initialProgram = Program {programAnnot = (), programFuncs = [], programExternFuns = [], programMainFun = Nothing}
   let programResult =
         foldl
           ( \acc f -> case f of
               Left fun ->
-                case fun.id of
-                  "main" -> acc {mainFun = Just fun}
-                  _ -> acc {funcs = acc.funcs ++ [fun]}
-              Right externFun -> acc {externFuns = acc.externFuns ++ [externFun]}
+                case funId fun of
+                  "main" -> acc {programMainFun = Just fun}
+                  _ -> acc {programFuncs = programFuncs acc ++ [fun]}
+              Right externFun -> acc {programExternFuns = programExternFuns acc ++ [externFun]}
           )
           initialProgram
           defs

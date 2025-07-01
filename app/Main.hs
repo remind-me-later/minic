@@ -76,7 +76,7 @@ opts =
 main :: IO ()
 main = do
   options <- execParser opts
-  executeCommand options.optCommand
+  executeCommand $ optCommand options
 
 -- Extract common parsing logic
 parseFile :: String -> IO (Either String Ast.Types.RawProgram)

@@ -5,37 +5,37 @@ module Ast.Types where
 import TypeSystem
 
 data Exp ea = Exp
-  { annot :: ea,
-    exp :: ExpInner ea
+  { expAnnot :: ea,
+    expInner :: ExpInner ea
   }
   deriving (Show, Eq)
 
 data ExpInner ea
   = BinExp
-      { left :: Exp ea,
-        op :: BinOp,
-        right :: Exp ea
+      { binLeft :: Exp ea,
+        binOp :: BinOp,
+        binRight :: Exp ea
       }
   | UnaryExp
-      { unop :: UnaryOp,
-        exp :: Exp ea
+      { unaryOp :: UnaryOp,
+        unaryExp :: Exp ea
       }
   | NumberExp
-      { num :: Int
+      { numberValue :: Int
       }
   | CharExp
-      { char :: Char
+      { charValue :: Char
       }
   | IdExp
-      { id :: Id
+      { idName :: Id
       }
   | Call
-      { id :: Id,
-        args :: [Exp ea]
+      { callId :: Id,
+        callArgs :: [Exp ea]
       }
   | ArrAccess
-      { id :: Id,
-        index :: Exp ea
+      { arrId :: Id,
+        arrIndex :: Exp ea
       }
   deriving (Eq)
 
@@ -49,71 +49,71 @@ instance (Show ea) => Show (ExpInner ea) where
   show (ArrAccess id index) = id ++ "[" ++ show index ++ "]"
 
 data VarDef = VarDef
-  { id :: Id,
-    ty :: Ty
+  { varDefId :: Id,
+    varDefTy :: Ty
   }
   deriving (Show, Eq)
 
 data Stmt ea ba
-  = ExpStmt {exp :: Exp ea}
+  = ExpStmt {stmtExp :: Exp ea}
   | LetStmt
-      { vardef :: VarDef,
-        exp :: Exp ea
+      { letVarDef :: VarDef,
+        letExp :: Exp ea
       }
   | LetArrStmt
-      { vardef :: VarDef,
-        size :: Int,
-        elems :: [Exp ea]
+      { letArrVarDef :: VarDef,
+        letArrSize :: Int,
+        letArrElems :: [Exp ea]
       }
   | AssignStmt
-      { id :: Id,
-        exp :: Exp ea
+      { assignId :: Id,
+        assignExp :: Exp ea
       }
   | AssignArrStmt
-      { id :: Id,
-        index :: Exp ea,
-        exp :: Exp ea
+      { assignArrId :: Id,
+        assignArrIndex :: Exp ea,
+        assignArrExp :: Exp ea
       }
   | ReturnStmt
-      { retexp :: Maybe (Exp ea)
+      { returnExp :: Maybe (Exp ea)
       }
   | IfStmt
-      { cond :: Exp ea,
+      { ifCond :: Exp ea,
         ifBody :: Block ea ba,
-        elseBody :: Maybe (Block ea ba)
+        ifElseBody :: Maybe (Block ea ba)
       }
   | WhileStmt
-      { cond :: Exp ea,
-        body :: Block ea ba
+      { whileCond :: Exp ea,
+        whileBody :: Block ea ba
       }
   deriving (Show, Eq)
 
 data Block ea ba = Block
-  { annot :: ba,
-    stmts :: [Stmt ea ba]
+  { blockAnnot :: ba,
+    blockStmts :: [Stmt ea ba]
   }
   deriving (Show, Eq)
 
 data Fun a ba = Fun
-  { id :: Id,
-    args :: [VarDef],
-    retty :: Ty,
-    body :: Block a ba
+  { funId :: Id,
+    funArgs :: [VarDef],
+    funRetTy :: Ty,
+    funBody :: Block a ba
   }
   deriving (Show, Eq)
 
 data ExternFun = ExternFun
-  { id :: Id,
-    args :: [Ty],
-    retty :: Ty
+  { externFunId :: Id,
+    externFunArgs :: [Ty],
+    externFunRetTy :: Ty
   }
   deriving (Show, Eq)
 
 data Program a ba = Program
-  { annot :: ba,
-    funcs :: [Fun a ba],
-    externFuns :: [ExternFun],
-    mainFun :: Maybe (Fun a ba)
+  { programAnnot :: ba,
+    programFuncs :: [Fun a ba],
+    programExternFuns :: [ExternFun],
+    programMainFun :: Maybe (Fun a ba)
   }
   deriving (Show, Eq)
 

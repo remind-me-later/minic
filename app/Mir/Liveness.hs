@@ -13,8 +13,8 @@ import TypeSystem (Id)
 type LiveSet = Set Temp
 
 data LivenessInfo = LivenessInfo
-  { liveIn :: Map BlockId LiveSet,
-    liveOut :: Map BlockId LiveSet
+  { livenessIn :: Map BlockId LiveSet,
+    livenessOut :: Map BlockId LiveSet
   }
   deriving (Eq)
 
@@ -39,19 +39,19 @@ instance Show LivenessInfo where
 -- Get all temporaries used (read) by an instruction
 getUsedTemps :: Inst -> Set Temp
 getUsedTemps inst = case inst of
-  Assign {src} -> getOperandTemps src
-  UnaryOp {src} -> getOperandTemps src
-  BinOp {left, right} -> getOperandTemps left <> getOperandTemps right
+  Assign {instSrc} -> getOperandTemps instSrc
+  UnaryOp {instSrc} -> getOperandTemps instSrc
+  BinOp {instLeft, instRight} -> getOperandTemps instLeft <> getOperandTemps instRight
   Call {} -> Set.empty -- args passed via Param instructions
-  Param {param} -> getOperandTemps param
+  Param {paramOperand} -> getOperandTemps paramOperand
 
 -- Get temporaries defined (written) by an instruction
 getDefinedTemps :: Inst -> Set Temp
 getDefinedTemps inst = case inst of
-  Assign {dst} -> getOperandTemps dst
-  UnaryOp {dst} -> getOperandTemps dst
-  BinOp {dst} -> getOperandTemps dst
-  Call {ret = Just (Temp ret)} -> Set.singleton ret
+  Assign {instDst} -> getOperandTemps instDst
+  UnaryOp {instDst} -> getOperandTemps instDst
+  BinOp {instDst} -> getOperandTemps instDst
+  Call {callRet = Just (Temp ret)} -> Set.singleton ret
   _ -> Set.empty
 
 -- Get temporaries from operands
@@ -61,37 +61,37 @@ getOperandTemps _ = Set.empty
 
 -- Get temporaries used by terminators
 getTerminatorUses :: Terminator -> Set Temp
-getTerminatorUses Return {retVal = Just t} = getOperandTemps t
-getTerminatorUses Return {retVal = Nothing} = Set.empty
+getTerminatorUses Return {retOperand = Just t} = getOperandTemps t
+getTerminatorUses Return {retOperand = Nothing} = Set.empty
 getTerminatorUses Jump {} = Set.empty
-getTerminatorUses CondJump {cond} = getOperandTemps cond
+getTerminatorUses CondJump {condOperand} = getOperandTemps condOperand
 
 -- Get successor blocks from terminator
 getSuccessors :: Terminator -> [BlockId]
-getSuccessors (Return _) = []
-getSuccessors (Jump target) = [target]
-getSuccessors (CondJump _ trueId falseId) = [trueId, falseId]
+getSuccessors Return {} = []
+getSuccessors Jump {jumpTarget} = [jumpTarget]
+getSuccessors CondJump {condTrueBlockId, condFalseBlockId} = [condTrueBlockId, condFalseBlockId]
 
 -- Build predecessor map for CFG
 buildPredecessorMap :: CFG -> Map BlockId [BlockId]
 buildPredecessorMap cfg =
-  let allBlocks = cfg.blocks
+  let allBlocks = cfgBlocks cfg
       addEdges block acc =
-        let successors = getSuccessors block.terminator
-            blockId' = block.blockId
+        let successors = getSuccessors (blockTerminator block)
+            blockId' = cfgBlockId block
          in foldr (\succ -> Map.insertWith (++) succ [blockId']) acc successors
    in foldr addEdges Map.empty allBlocks
 
 -- Perform live variable analysis on a CFG
 performLivenessAnalysis :: CFG -> LivenessInfo
 performLivenessAnalysis cfg =
-  let blockList = cfg.blocks
-      blockMap = Map.fromList [(b.blockId, b) | b <- blockList]
+  let blockList = cfgBlocks cfg
+      blockMap = Map.fromList [(cfgBlockId b, b) | b <- blockList]
       predecessors = buildPredecessorMap cfg
 
       -- Initialize all sets to empty
-      initialLiveIn = Map.fromList [(b.blockId, Set.empty) | b <- blockList]
-      initialLiveOut = Map.fromList [(b.blockId, Set.empty) | b <- blockList]
+      initialLiveIn = Map.fromList [(cfgBlockId b, Set.empty) | b <- blockList]
+      initialLiveOut = Map.fromList [(cfgBlockId b, Set.empty) | b <- blockList]
    in fixedPoint blockMap predecessors initialLiveIn initialLiveOut
 
 -- Fixed-point iteration for liveness
@@ -104,7 +104,7 @@ fixedPoint ::
 fixedPoint blockMap predecessors liveIn liveOut =
   let (newLiveIn, newLiveOut) = oneIteration blockMap predecessors liveIn liveOut
    in if newLiveIn == liveIn && newLiveOut == liveOut
-        then LivenessInfo {liveIn = newLiveIn, liveOut = newLiveOut}
+        then LivenessInfo {livenessIn = newLiveIn, livenessOut = newLiveOut}
         else fixedPoint blockMap predecessors newLiveIn newLiveOut
 
 -- One iteration of the liveness algorithm
@@ -136,7 +136,7 @@ updateBlock blockMap _predecessors _oldLiveOut blockId (liveIn, liveOut) =
     Nothing -> (liveIn, liveOut)
     Just block ->
       let -- OUT[B] = union of IN[S] for all successors S of B
-          successors = getSuccessors block.terminator
+          successors = getSuccessors (blockTerminator block)
           newOut = Set.unions [Map.findWithDefault Set.empty s liveIn | s <- successors]
 
           -- Calculate used and defined temps for this block
@@ -166,11 +166,11 @@ processInstruction inst (used, defined) =
    in (newUsed, newDefined)
 
 analyzeFunctionLiveness :: Fun -> LivenessInfo
-analyzeFunctionLiveness Fun {cfg} = performLivenessAnalysis cfg
+analyzeFunctionLiveness Fun {funCfg} = performLivenessAnalysis funCfg
 
 analyzeProgramLiveness :: Program -> Map Id LivenessInfo
-analyzeProgramLiveness Program {funs, mainFun} =
-  Map.fromList [(fun.id, analyzeFunctionLiveness fun) | fun <- funs ++ maybeToList mainFun]
+analyzeProgramLiveness Program {programFuns, programMainFun} =
+  Map.fromList [(funId fun, analyzeFunctionLiveness fun) | fun <- programFuns ++ maybeToList programMainFun]
   where
     maybeToList Nothing = []
     maybeToList (Just x) = [x]

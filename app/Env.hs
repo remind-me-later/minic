@@ -40,107 +40,122 @@ instance Show SymbolAlloc where
   show Local = "Local"
   show Global = "Global"
 
-data Symbol = Symbol {id :: Id, ty :: Ty, alloc :: SymbolAlloc}
+data Symbol = Symbol {symbolId :: Id, symbolTy :: Ty, symbolAlloc :: SymbolAlloc}
   deriving (Eq)
 
 instance Show Symbol where
-  show Symbol {ty, alloc} =
-    "Symbol { ty: " ++ show ty ++ ", alloc: " ++ show alloc ++ " }"
+  show Symbol {symbolTy, symbolAlloc} =
+    "Symbol { ty: " ++ show symbolTy ++ ", alloc: " ++ show symbolAlloc ++ " }"
 
 data Env = Env
-  { name :: String,
-    symbols :: Map.Map Id Symbol
+  { envName :: String,
+    envSymbols :: Map.Map Id Symbol
   }
   deriving (Eq)
 
 instance Show Env where
-  show env =
+  show Env {envName, envSymbols} =
     "Env { name: "
-      ++ env.name
+      ++ envName
       ++ ", symbols: "
-      ++ show (Map.toList env.symbols)
+      ++ show (Map.toList envSymbols)
       ++ " }"
 
 newtype EnvStack = EnvStack
-  { stack :: [Env]
+  { envStack :: [Env]
   }
   deriving (Eq)
 
 emptyEnv :: String -> Env
-emptyEnv name = Env {name, symbols = Map.empty}
+emptyEnv name = Env {envName = name, envSymbols = Map.empty}
 
 insert :: Id -> Symbol -> EnvStack -> EnvStack
 insert id symbol stack' =
   case stack' of
     EnvStack [] -> error "Cannot insert into an empty environment stack"
     EnvStack (env : rest) ->
-      EnvStack {stack = env {symbols = Map.insert id symbol env.symbols} : rest}
+      EnvStack {envStack = env {envSymbols = Map.insert id symbol (envSymbols env)} : rest}
 
 lookup :: Id -> EnvStack -> Maybe Symbol
 lookup id stack' =
   case stack' of
     EnvStack [] -> Nothing
     EnvStack (env : rest) ->
-      case Map.lookup id env.symbols of
+      case Map.lookup id (envSymbols env) of
         Just symbol -> Just symbol
-        Nothing -> lookup id (EnvStack {stack = rest})
+        Nothing -> lookup id EnvStack {envStack = rest}
 
 pushEnv :: Env -> EnvStack -> EnvStack
-pushEnv env es = EnvStack {stack = env : es.stack}
+pushEnv env EnvStack {envStack} =
+  EnvStack {envStack = env : envStack}
 
 popEnv :: EnvStack -> EnvStack
-popEnv es =
-  case es.stack of
+popEnv EnvStack {envStack} =
+  case envStack of
     [] -> error "Cannot pop from an empty environment stack"
-    _ : rest -> EnvStack {stack = rest}
+    _ : rest -> EnvStack {envStack = rest}
 
 peekEnv :: EnvStack -> Env
-peekEnv es =
-  case es.stack of
+peekEnv EnvStack {envStack} =
+  case envStack of
     [] -> error "Cannot peek into an empty environment stack"
     env : _ -> env
 
 insertFunction :: Fun a b -> EnvStack -> EnvStack
-insertFunction f =
+insertFunction Fun {funId, funArgs, funRetTy} =
   insert
-    f.id
+    funId
     Symbol
-      { id = f.id,
-        alloc = Global,
-        ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
+      { symbolId = funId,
+        symbolAlloc = Global,
+        symbolTy = FunTy {funTyArgs = varDefTy <$> funArgs, funTyRetTy = funRetTy}
       }
 
 insertExternFunction :: ExternFun -> EnvStack -> EnvStack
-insertExternFunction f =
+insertExternFunction ExternFun {externFunId, externFunArgs, externFunRetTy} =
   insert
-    f.id
+    externFunId
     Symbol
-      { id = f.id,
-        alloc = Global,
-        ty = FunTy {args = f.args, retty = f.retty}
+      { symbolId = externFunId,
+        symbolAlloc = Global,
+        symbolTy = FunTy {funTyArgs = externFunArgs, funTyRetTy = externFunRetTy}
       }
 
 insertVar :: VarDef -> EnvStack -> EnvStack
-insertVar v = insert v.id Symbol {id = v.id, alloc = Local, ty = v.ty}
+insertVar VarDef {varDefId, varDefTy} =
+  insert
+    varDefId
+    Symbol
+      { symbolId = varDefId,
+        symbolAlloc = Local,
+        symbolTy = varDefTy
+      }
 
 insertArg :: VarDef -> EnvStack -> EnvStack
-insertArg v = insert v.id Symbol {id = v.id, alloc = Argument, ty = v.ty}
+insertArg VarDef {varDefId, varDefTy} =
+  insert
+    varDefId
+    Symbol
+      { symbolId = varDefId,
+        symbolAlloc = Argument,
+        symbolTy = varDefTy
+      }
 
 insertFun :: Fun a b -> EnvStack -> EnvStack
-insertFun f =
+insertFun Fun {funId, funArgs, funRetTy} =
   insert
-    f.id
+    funId
     Symbol
-      { id = f.id,
-        alloc = Global,
-        ty = FunTy {args = (.ty) <$> f.args, retty = f.retty}
+      { symbolId = funId,
+        symbolAlloc = Global,
+        symbolTy = FunTy {funTyArgs = varDefTy <$> funArgs, funTyRetTy = funRetTy}
       }
 
 emptyEnvStack :: String -> EnvStack
-emptyEnvStack name = EnvStack {stack = [emptyEnv name]}
+emptyEnvStack name = EnvStack {envStack = [emptyEnv name]}
 
 numSymbolsInEnv :: Env -> Int
-numSymbolsInEnv e = Map.size e.symbols
+numSymbolsInEnv e = Map.size (envSymbols e)
 
 toList :: Env -> [Symbol]
-toList e = Map.elems e.symbols
+toList e = Map.elems (envSymbols e)

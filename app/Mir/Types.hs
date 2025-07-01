@@ -32,9 +32,9 @@ instance Show Operand where
   show (StackOperand n) = "stack " ++ show n
 
 data Terminator
-  = Return {retVal :: Maybe Operand}
-  | Jump {target :: BlockId}
-  | CondJump {cond :: Operand, trueBlockId :: BlockId, falseBlockId :: BlockId}
+  = Return {retOperand :: Maybe Operand}
+  | Jump {jumpTarget :: BlockId}
+  | CondJump {condOperand :: Operand, condTrueBlockId :: BlockId, condFalseBlockId :: BlockId}
   deriving (Eq)
 
 instance Show Terminator where
@@ -45,30 +45,30 @@ instance Show Terminator where
     "if " ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
 
 data Inst
-  = Assign {dst :: Operand, src :: Operand}
-  | UnaryOp {dst :: Operand, unop :: UnaryOp, src :: Operand}
-  | BinOp {dst :: Operand, binop :: BinOp, left :: Operand, right :: Operand}
-  | Call {ret :: Maybe Operand, funId :: Id, argCount :: Int}
-  | Param {param :: Operand}
+  = Assign {instDst :: Operand, instSrc :: Operand}
+  | UnaryOp {instDst :: Operand, instUnop :: UnaryOp, instSrc :: Operand}
+  | BinOp {instDst :: Operand, instBinop :: BinOp, instLeft :: Operand, instRight :: Operand}
+  | Call {callRet :: Maybe Operand, callFunId :: Id, callArgCount :: Int}
+  | Param {paramOperand :: Operand}
   deriving (Eq)
 
 instance Show Inst where
-  show Assign {dst, src} = show dst ++ " = " ++ show src
-  show UnaryOp {dst, unop, src} = show dst ++ " = " ++ show unop ++ show src
-  show BinOp {dst, binop, left, right} =
-    show dst ++ " = " ++ show left ++ " " ++ show binop ++ " " ++ show right
-  show Call {ret = Just t, funId, argCount} = show t ++ " = call " ++ funId ++ ", " ++ show argCount
-  show Call {ret = Nothing, funId, argCount} = "call " ++ funId ++ ", " ++ show argCount
-  show Param {param} = "param " ++ show param
+  show Assign {instDst, instSrc} = show instDst ++ " = " ++ show instSrc
+  show UnaryOp {instDst, instUnop, instSrc} = show instDst ++ " = " ++ show instUnop ++ show instSrc
+  show BinOp {instDst, instBinop, instLeft, instRight} =
+    show instDst ++ " = " ++ show instLeft ++ " " ++ show instBinop ++ " " ++ show instRight
+  show Call {callRet = Just t, callFunId, callArgCount} = show t ++ " = call " ++ callFunId ++ ", " ++ show callArgCount
+  show Call {callRet = Nothing, callFunId, callArgCount} = "call " ++ callFunId ++ ", " ++ show callArgCount
+  show Param {paramOperand} = "param " ++ show paramOperand
 
 -- A Basic Block is a sequence of instructions that starts with a blockId
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 -- For simplicity here, we'll just list instructions and assume the last one is control flow.
 -- A more rigorous CFG would explicitly link blocks.
 data BasicBlock = BasicBlock
-  { blockId :: BlockId,
-    insts :: [Inst],
-    terminator :: Terminator
+  { cfgBlockId :: BlockId,
+    blockInsts :: [Inst],
+    blockTerminator :: Terminator
   }
   deriving (Eq)
 
@@ -81,9 +81,9 @@ instance Show BasicBlock where
       ++ show terminator
 
 data CFG = CFG
-  { entryBlockId :: BlockId,
-    exitBlocks :: Set BlockId,
-    blocks :: [BasicBlock]
+  { cfgEntryBlockId :: BlockId,
+    cfgExitBlocks :: Set BlockId,
+    cfgBlocks :: [BasicBlock]
   }
   deriving (Eq)
 
@@ -100,10 +100,10 @@ instance Show CFG where
       ++ unlines (show <$> blocks)
 
 data Fun = Fun
-  { id :: Id,
-    args :: [Env.Symbol],
-    locals :: [Env.Symbol],
-    cfg :: CFG
+  { funId :: Id,
+    funArgs :: [Env.Symbol],
+    funLocals :: [Env.Symbol],
+    funCfg :: CFG
   }
   deriving (Eq)
 
@@ -127,9 +127,9 @@ instance Show ExternFun where
   show (ExternFun id) = "Extern Function: " ++ id
 
 data Program = Program
-  { funs :: [Fun],
-    externFuns :: [ExternFun],
-    mainFun :: Maybe Fun
+  { programFuns :: [Fun],
+    programExternFuns :: [ExternFun],
+    programMainFun :: Maybe Fun
   }
   deriving (Eq)
 
