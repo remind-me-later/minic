@@ -70,6 +70,7 @@ executable minic
                     Mir 
                     Mir.Translate
                     Mir.Types
+                    Mir.Liveness
                     X86
                     X86.Translate
                     X86.Types

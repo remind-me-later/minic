@@ -1,9 +1,6 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Mir.Translate where
-
--- ( transProgram,
--- )
+module Mir.Translate (transProgram) where
 
 import Ast qualified
 import Control.Monad (foldM, foldM_, unless)
@@ -99,12 +96,10 @@ transExp Ast.Exp {annot, exp}
         (Ast.NumberExp {num = l}, _) -> do
           transExp right
           t <- gets (.tmp)
-          modify' incTmp
           modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstInt l, right = Mir.Temp t}]
         (_, Ast.NumberExp {num = r}) -> do
           transExp left
           t <- gets (.tmp)
-          modify' incTmp
           modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.Temp t, right = Mir.ConstInt r}]
         (Ast.CharExp {char = l}, Ast.CharExp {char = r}) -> do
           t <- gets (.tmp)
@@ -112,12 +107,10 @@ transExp Ast.Exp {annot, exp}
         (Ast.CharExp {char = l}, _) -> do
           transExp right
           t <- gets (.tmp)
-          modify' incTmp
           modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstChar l, right = Mir.Temp t}]
         (_, Ast.CharExp {char = r}) -> do
           transExp left
           t <- gets (.tmp)
-          modify' incTmp
           modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.Temp t, right = Mir.ConstChar r}]
         _ -> do
           transExp left
@@ -153,12 +146,10 @@ transExp Ast.Exp {annot, exp}
       let idx = Mir.ConstInt num
       srcVar <- arrayAccess id idx
       t <- gets (.tmp)
-      modify' incTmp
       modify' $ addInstsToBlock [Mir.Load {dst = t, srcVar}]
   | Ast.ArrAccess {id, index} <- exp = do
       transExp index
       tIndex <- gets (.tmp)
-      modify' incTmp
       srcVar <- arrayAccess id (Mir.Temp tIndex)
       modify' $ addInstsToBlock [Mir.Load {dst = tIndex, srcVar}]
 
@@ -189,7 +180,6 @@ transStmt stmt
   | Ast.LetStmt {vardef = Ast.VarDef {id}, exp} <- stmt = do
       transExp exp
       t <- gets (.tmp)
-      modify' incTmp
       modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
   | Ast.AssignStmt {id, exp} <- stmt = do
       transExp exp
@@ -197,11 +187,9 @@ transStmt stmt
       case symb of
         Just Env.Symbol {alloc = Env.Local} -> do
           t <- gets (.tmp)
-          modify' incTmp
           modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Local {id}, src = t}])
         Just Env.Symbol {alloc = Env.Argument} -> do
           t <- gets (.tmp)
-          modify' incTmp
           modify' (addInstsToBlock [Mir.Store {dstVar = Mir.Arg {id}, src = t}])
         _ -> error $ "Undefined variable: " ++ id
   | Ast.LetArrStmt {vardef = Ast.VarDef {id}, elems} <- stmt = do
@@ -227,7 +215,6 @@ transStmt stmt
       dstVar <- arrayAccess id idx
       transExp exp
       tExp <- gets (.tmp)
-      modify' incTmp
       modify' (addInstsToBlock [Mir.Store {dstVar, src = tExp}])
   | Ast.AssignArrStmt {id, index, exp} <- stmt = do
       transExp index
@@ -237,14 +224,12 @@ transStmt stmt
       dstVar <- arrayAccess id (Mir.Temp tIndex)
       transExp exp
       tExp <- gets (.tmp)
-      modify' incTmp
       modify' (addInstsToBlock [Mir.Store {dstVar, src = tExp}])
   | Ast.ReturnStmt {retexp} <- stmt = do
       case retexp of
         Just exp -> do
           transExp exp
           t <- gets (.tmp)
-          modify' incTmp
           -- modify' (addInstsToBlock [Mir.Return {retVal = Just t}])
           modify' $ terminateBlock Mir.Return {retVal = Just t}
         Nothing -> do
