@@ -35,11 +35,13 @@ instance Show Var where
 
 data Operand
   = ConstInt Int
+  | ConstChar Char
   | Temp Temp
   deriving (Eq)
 
 instance Show Operand where
   show (ConstInt n) = "const " ++ show n
+  show (ConstChar c) = "const " ++ show c
   show (Temp t) = "t" ++ show t
 
 data Inst

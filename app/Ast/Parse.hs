@@ -3,7 +3,7 @@
 module Ast.Parse (program) where
 
 import Ast.Types
-import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
+import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 import TypeSystem
@@ -64,14 +64,33 @@ id =
 ty :: PC.Parser Ty
 ty =
   let parseInt = (keyword "int" $> IntTy)
+      parseChar = (keyword "char" $> CharTy)
       parseBool = (keyword "bool" $> BoolTy)
       parseVoid = (keyword "void" $> VoidTy)
-   in lex (parseInt <|> parseBool <|> parseVoid)
+   in lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
 
 num :: PC.Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
    in read <$> lex (PC.many1 (PC.satisfy isDigit))
+
+char :: PC.Parser Char
+char = lex $ do
+  _ <- PC.char '\''
+  c <- PC.try (PC.char '\\' *> escapeChar) <|> PC.satisfy validChar
+  _ <- PC.char '\''
+  return c
+  where
+    validChar c = c /= '\'' && c /= '\\' && c >= ' ' && c <= '~'
+    escapeChar =
+      PC.choice
+        [ PC.char '\\' $> '\\'
+        , PC.char '\'' $> '\''
+        , PC.char '\"' $> '\"'
+        , PC.char 'n' $> '\n'
+        , PC.char 'r' $> '\r'
+        , PC.char 't' $> '\t'
+        ]
 
 exp :: PC.Parser RawExp
 exp = eqexp
@@ -81,11 +100,15 @@ exp = eqexp
         <|> PC.try arraccess
         <|> PC.try idexp
         <|> PC.try parenexp
+        <|> PC.try charexp
         <|> numexp
       where
         numexp = do
           num <- num
           return Exp {annot = (), exp = NumberExp {num}}
+        charexp = do
+          char <- char
+          return Exp {annot = (), exp = CharExp {char}}
         idexp = do
           id <- id
           return Exp {annot = (), exp = IdExp {id}}
@@ -219,7 +242,7 @@ stmt =
 
     whilestmt = do
       _ <- whilekw
-      cond <- exp
+      cond <- parens exp
       body <- block
       return WhileStmt {cond, body}
 

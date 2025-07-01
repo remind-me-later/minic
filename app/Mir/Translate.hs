@@ -65,6 +65,9 @@ transExp Ast.Exp {annot, exp}
   | Ast.NumberExp {num} <- exp = do
       t <- gets (.tmp)
       modify' $ addInstsToBlock [Mir.Mov {dst = t, srcOp = Mir.ConstInt num}]
+  | Ast.CharExp {char} <- exp = do
+      t <- gets (.tmp)
+      modify' $ addInstsToBlock [Mir.Mov {dst = t, srcOp = Mir.ConstChar char}]
   | Ast.BinExp {left, op, right} <- exp = do
       case (left.exp, right.exp) of
         (Ast.NumberExp {num = l}, Ast.NumberExp {num = r}) -> do
@@ -80,6 +83,19 @@ transExp Ast.Exp {annot, exp}
           t <- gets (.tmp)
           modify' incTmp
           modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.Temp t, right = Mir.ConstInt r}]
+        (Ast.CharExp {char = l}, Ast.CharExp {char = r}) -> do
+          t <- gets (.tmp)
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstChar l, right = Mir.ConstChar r}]
+        (Ast.CharExp {char = l}, _) -> do
+          transExp right
+          t <- gets (.tmp)
+          modify' incTmp
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.ConstChar l, right = Mir.Temp t}]
+        (_, Ast.CharExp {char = r}) -> do
+          transExp left
+          t <- gets (.tmp)
+          modify' incTmp
+          modify' $ addInstsToBlock [Mir.BinOp {dst = t, binop = op, left = Mir.Temp t, right = Mir.ConstChar r}]
         _ -> do
           transExp left
           lt <- gets (.tmp)
@@ -140,6 +156,8 @@ arrayAccess id (Mir.ConstInt idx) = do
     Just Env.Symbol {alloc = Env.Argument} -> do
       error "Array access on argument is not supported"
     _ -> error $ "Undefined array: " ++ id
+-- unsupported
+arrayAccess id _ = error $ "Array access with unsupported index type for array: " ++ id
 
 transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
@@ -260,6 +278,7 @@ transStmt stmt
       modify' (addInstsToBlock [Mir.Jump {target = condLabel}])
 
       modify' (pushBlock endLabel)
+  
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
 transBlock label Ast.Block {annot = scope, stmts} = do
