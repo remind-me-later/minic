@@ -126,16 +126,6 @@ transformInst allocation inst = case inst of
         left = transformOperand allocation left,
         right = transformOperand allocation right
       }
-  Load {dst, srcVar} ->
-    Load
-      { dst = transformOperand allocation dst, -- Transform destination!
-        srcVar = transformVar allocation srcVar -- Also transform variables with temp offsets
-      }
-  Store {dstVar, src} ->
-    Store
-      { dstVar = transformVar allocation dstVar, -- Transform variables with temp offsets
-        src = transformOperand allocation src -- Transform source operand
-      }
   Call {ret, funId, argCount} ->
     Call
       { ret = fmap (transformOperand allocation) ret, -- Transform return operand
@@ -145,18 +135,6 @@ transformInst allocation inst = case inst of
   Param {param} ->
     Param
       { param = transformOperand allocation param -- Transform parameter operand
-      }
-
--- You'll also need this helper for Var transformations
-transformVar :: AllocationResult -> Var -> Var
-transformVar allocation var = case var of
-  Local {id} -> Local {id}
-  Arg {id} -> Arg {id}
-  LocalWithOffset {id, offset, mult} ->
-    LocalWithOffset
-      { id = id,
-        offset = transformOperand allocation offset, -- Transform offset operand
-        mult = mult
       }
 
 -- And for bare Temp fields, you might want a separate function

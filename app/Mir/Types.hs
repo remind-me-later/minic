@@ -16,19 +16,6 @@ data Register = R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8
 availableRegisters :: [Register]
 availableRegisters = [R1 .. R8]
 
-data Var
-  = Local {id :: Id}
-  | LocalWithOffset {id :: Id, offset :: Operand, mult :: Int}
-  | Arg {id :: Id}
-  deriving (Eq)
-
-instance Show Var where
-  show (Local id) = "local " ++ id
-  show (Arg id) = "arg " ++ id
-  show (LocalWithOffset id offset 0) = "local " ++ id ++ "[" ++ show offset ++ "]"
-  show (LocalWithOffset id offset mult) =
-    "local " ++ id ++ "[" ++ show offset ++ " * " ++ show mult ++ "]"
-
 data Operand
   = ConstInt Int
   | ConstChar Char
@@ -61,8 +48,6 @@ data Inst
   = Assign {dst :: Operand, src :: Operand}
   | UnaryOp {dst :: Operand, unop :: UnaryOp, src :: Operand}
   | BinOp {dst :: Operand, binop :: BinOp, left :: Operand, right :: Operand}
-  | Load {dst :: Operand, srcVar :: Var}
-  | Store {dstVar :: Var, src :: Operand}
   | Call {ret :: Maybe Operand, funId :: Id, argCount :: Int}
   | Param {param :: Operand}
   deriving (Eq)
@@ -72,8 +57,6 @@ instance Show Inst where
   show UnaryOp {dst, unop, src} = show dst ++ " = " ++ show unop ++ show src
   show BinOp {dst, binop, left, right} =
     show dst ++ " = " ++ show left ++ " " ++ show binop ++ " " ++ show right
-  show Load {dst, srcVar} = show dst ++ " = " ++ show srcVar
-  show Store {dstVar, src} = show dstVar ++ " = " ++ show src
   show Call {ret = Just t, funId, argCount} = show t ++ " = call " ++ funId ++ ", " ++ show argCount
   show Call {ret = Nothing, funId, argCount} = "call " ++ funId ++ ", " ++ show argCount
   show Param {param} = "param " ++ show param

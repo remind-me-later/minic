@@ -4,10 +4,7 @@ module X86.Translate where
 
 import Control.Monad (forM_, unless)
 import Control.Monad.State (State, gets, modify', runState)
-import Data.Map (Map, empty, fromList, lookup)
-import Env
 import Mir.Types qualified as Mir
-import TypeSystem (Id, sizeOf)
 import TypeSystem qualified (BinOp (..), UnaryOp (..))
 import X86.Types
 
@@ -55,8 +52,7 @@ makeFileHeader externs =
       externs
 
 data TranslationState = TranslationState
-  { varOffsets :: Map Id Int,
-    assemblyCode :: [Inst],
+  { assemblyCode :: [Inst],
     lastJmpCond :: Maybe JmpCond,
     fileHeader :: String
   }
@@ -69,134 +65,6 @@ changeFlagOp cond = modify' (\s -> s {lastJmpCond = Just cond})
 
 emitAsmInst :: Inst -> State TranslationState ()
 emitAsmInst code = modify' (\s -> s {assemblyCode = s.assemblyCode ++ [code]})
-
--- Offset from rbp (base pointer) for local variables
--- All variables are QWORDS and aligned
-getVarOffset :: Id -> State TranslationState (Maybe Int)
-getVarOffset varId = gets (Data.Map.lookup varId . (.varOffsets))
-
-loadVarToEax :: Mir.Var -> State TranslationState ()
-loadVarToEax varId = case varId of
-  Mir.Local {id} -> do
-    maybeOffset <- getVarOffset id
-    case maybeOffset of
-      Just disp ->
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp, index_scale = Nothing},
-              dst = Reg Rax
-            }
-      Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
-  Mir.Arg {id} -> do
-    maybeOffset <- getVarOffset id
-    case maybeOffset of
-      Just disp ->
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp, index_scale = Nothing},
-              dst = Reg Rax
-            }
-      Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
-  Mir.LocalWithOffset {id, offset, mult} -> do
-    maybeOffset <- getVarOffset id
-    let baseOffset = case maybeOffset of
-          Just baseOffset -> baseOffset
-          Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
-
-    case offset of
-      Mir.ConstInt off ->
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing},
-              dst = Reg Rax
-            }
-      Mir.ConstChar _ ->
-        error "Cannot load a character variable into rax directly, use ConstInt instead"
-      Mir.Temp _ -> do
-        -- pop temp into rsi
-        emitAsmInst Pop {op = Reg Rsi}
-        emitAsmInst $ Neg {op = Reg Rsi} -- Negate rsi to use as index
-
-        -- then load from rsi into rax
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, mult)},
-              dst = Reg Rax
-            }
-      Mir.RegOperand r -> do
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp = baseOffset, index_scale = Just (mirRegisterToX86 r, mult)},
-              dst = Reg Rax
-            }
-      Mir.StackOperand slot -> do
-        -- Stack operands are not used in this context, but if they were:
-        emitAsmInst $
-          Mov
-            { src = Mem {base = Rbp, disp = (-(slot + 1)) * 8, index_scale = Nothing},
-              dst = Reg Rax
-            }
-
-storeEaxToVar :: Mir.Var -> State TranslationState ()
-storeEaxToVar varId = case varId of
-  Mir.Local {id} -> do
-    maybeOffset <- getVarOffset id
-    case maybeOffset of
-      Just disp ->
-        emitAsmInst $
-          Mov
-            { src = Reg Rax,
-              dst = Mem {base = Rbp, disp, index_scale = Nothing}
-            }
-      Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
-  Mir.Arg {id} -> do
-    maybeOffset <- getVarOffset id
-    case maybeOffset of
-      Just disp ->
-        emitAsmInst $
-          Mov
-            { src = Reg Rax,
-              dst = Mem {base = Rbp, disp, index_scale = Nothing}
-            }
-      Nothing -> error $ "Argument " ++ show id ++ " not found in stack frame"
-  Mir.LocalWithOffset {id, offset, mult} -> do
-    maybeOffset <- getVarOffset id
-    let baseOffset = case maybeOffset of
-          Just baseOffset -> baseOffset
-          Nothing -> error $ "Variable " ++ show id ++ " not found in stack frame"
-
-    case offset of
-      Mir.ConstInt off -> do
-        emitAsmInst $
-          Mov
-            { src = Reg Rax,
-              dst = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing}
-            }
-      Mir.ConstChar _ ->
-        error "Cannot use a character variable as destination, use ConstInt instead"
-      Mir.Temp _ -> do
-        -- pop temp into rsi
-        emitAsmInst Pop {op = Reg Rsi}
-        emitAsmInst $ Neg {op = Reg Rsi} -- Negate rsi to use as index
-        -- then store from rax into rsi indexed memory location
-        emitAsmInst $
-          Mov
-            { src = Reg Rax,
-              dst = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, mult)}
-            }
-      Mir.RegOperand r -> do
-        emitAsmInst $
-          Mov
-            { src = Reg $ mirRegisterToX86 r,
-              dst = Mem {base = Rbp, disp = baseOffset, index_scale = Just (Rsi, mult)}
-            }
-      Mir.StackOperand slot -> do
-        -- Stack operands are not used in this context, but if they were:
-        emitAsmInst $
-          Mov
-            { src = Reg Rax,
-              dst = Mem {base = Rbp, disp = (-(slot + 1)) * 8, index_scale = Nothing}
-            }
 
 -- Convert MIR register to X86 register
 mirRegisterToX86 :: Mir.Register -> Reg
@@ -214,8 +82,24 @@ translateOperand :: Mir.Operand -> Op
 translateOperand (Mir.ConstInt n) = Imm n
 translateOperand (Mir.ConstChar c) = Imm (fromIntegral (fromEnum c))
 translateOperand (Mir.RegOperand reg) = Reg (mirRegisterToX86 reg)
-translateOperand (Mir.StackOperand slot) = Mem {base = Rbp, disp = (-(slot + 1)) * 8, index_scale = Nothing}
-translateOperand (Mir.Temp _) = error "Unallocated temporary found in X86 translation"
+translateOperand (Mir.StackOperand offset) = Mem {base = Rbp, disp = offset, index_scale = Nothing}
+translateOperand (Mir.Temp _) = error "Temporary variables should be handled by register allocation"
+
+calculateFrameSize :: Mir.CFG -> Int
+calculateFrameSize cfg =
+  let allOperands = concatMap getStackOperands cfg.blocks
+      stackOffsets = [abs offset | Mir.StackOperand offset <- allOperands, offset < 0]
+   in if null stackOffsets then 0 else maximum stackOffsets
+
+getStackOperands :: Mir.BasicBlock -> [Mir.Operand]
+getStackOperands Mir.BasicBlock {insts} = concatMap extractOperands insts
+  where
+    extractOperands (Mir.Assign {dst, src}) = [dst, src]
+    extractOperands (Mir.BinOp {dst, left, right}) = [dst, left, right]
+    extractOperands (Mir.UnaryOp {dst, src}) = [dst, src]
+    extractOperands (Mir.Call {ret = Just retOperand}) = [retOperand]
+    extractOperands (Mir.Call {ret = Nothing}) = []
+    extractOperands (Mir.Param {param}) = [param]
 
 -- Load operand value into a specific register
 loadOperandToReg :: Mir.Operand -> Reg -> State TranslationState ()
@@ -322,15 +206,6 @@ translateInst inst
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
         _ -> emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
-  | Mir.Load {dst, srcVar} <- inst = do
-      let dstOp = translateOperand dst
-      loadVarToEax srcVar
-      case dstOp of
-        Reg dstReg | dstReg == Rax -> return () -- Already in place
-        _ -> emitAsmInst $ Mov {src = Reg Rax, dst = dstOp}
-  | Mir.Store {dstVar, src} <- inst = do
-      loadOperandToReg src Rax
-      storeEaxToVar dstVar
   | Mir.Call {funId, argCount, ret} <- inst = do
       emitAsmInst $ Call {name = funId}
       -- Remove arguments from the stack (if using stack calling convention)
@@ -380,53 +255,18 @@ translateCfg isMain Mir.CFG {blocks} = do
     translateBasicBlock False isMain block
 
 translateMainFun :: Mir.Fun -> State TranslationState ()
-translateMainFun Mir.Fun {locals, cfg} = do
-  let (frameSize, varOffsetList) =
-        foldl
-          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, -a)])
-          )
-          (0, [])
-          locals
-
-  mapM_ emitAsmInst (mainFunctionPrologue frameSize)
-
-  -- here 0 is the first local variable, -8 is the second, etc.
-  let varOffsets = Data.Map.fromList varOffsetList
-  modify' (\s -> s {varOffsets})
+translateMainFun Mir.Fun {cfg} = do
+  mapM_ emitAsmInst (mainFunctionPrologue (calculateFrameSize cfg))
 
   translateCfg True cfg
 
   mapM_ emitAsmInst mainFunctionEpilogue
 
 translateFun :: Mir.Fun -> State TranslationState ()
-translateFun Mir.Fun {id, args, locals, cfg} = do
-  let (frameSize, varOffsetList) =
-        foldl
-          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, -a)])
-          )
-          (0, [])
-          (args ++ locals)
+translateFun Mir.Fun {id, cfg} = do
+  mapM_ emitAsmInst (functionPrologue id (calculateFrameSize cfg))
 
-  mapM_ emitAsmInst (functionPrologue id frameSize)
-
-  let (_, argOffsets) =
-        foldl
-          ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, a)])
-          )
-          (16, [])
-          args
-
-  modify'
-    ( \s ->
-        s
-          { varOffsets =
-              Data.Map.fromList
-                ( map (\(id, off) -> (id, off - 8)) varOffsetList
-                    ++ argOffsets
-                )
-          }
-    )
-
+  -- No need to calculate offsets - they're in the StackOperands
   translateCfg False cfg
 
 translateProgram' :: Mir.Program -> State TranslationState ()
@@ -443,8 +283,7 @@ translateProgram program = show finalState
   where
     initialState =
       TranslationState
-        { varOffsets = Data.Map.empty,
-          assemblyCode = [],
+        { assemblyCode = [],
           lastJmpCond = Nothing,
           fileHeader = ""
         }

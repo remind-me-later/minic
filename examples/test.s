@@ -10,23 +10,18 @@ _start:
 	movq %rsp, %rbp
 	subq $24, %rsp
 	movq $10, %r8
-	movq %r8, %rax
-	movq %rax, (%rbp)
+	movq %r8, -24(%rbp)
 	movq $0, %r8
-	movq %r8, %rax
-	movq %rax, -8(%rbp)
+	movq %r8, -16(%rbp)
 	movq $5, %r8
 	pushq %r8
 	call fact
 	popq %rbx
 	movq %rax, %r8
-	movq %r8, %rax
-	movq %rax, -16(%rbp)
+	movq %r8, -8(%rbp)
 	movq $20, %r8
-	movq %r8, %rax
-	movq %rax, -8(%rbp)
-	movq (%rbp), %rax
-	movq %rax, %r8
+	movq %r8, -16(%rbp)
+	movq -24(%rbp), %r8
 	pushq %r8
 	call print_int
 	popq %rbx
@@ -34,8 +29,7 @@ _start:
 	pushq %r8
 	call print
 	popq %rbx
-	movq -8(%rbp), %rax
-	movq %rax, %r8
+	movq -16(%rbp), %r8
 	pushq %r8
 	call print_int
 	popq %rbx
@@ -43,8 +37,7 @@ _start:
 	pushq %r8
 	call print
 	popq %rbx
-	movq -16(%rbp), %rax
-	movq %rax, %r8
+	movq -8(%rbp), %r8
 	pushq %r8
 	call print_int
 	popq %rbx
@@ -60,18 +53,15 @@ print_int:
 	movq %rsp, %rbp
 	subq $16, %rsp
 	movq $0, %r8
-	movq %r8, %rax
-	movq %rax, -16(%rbp)
-	movq 16(%rbp), %rax
-	movq %rax, %r8
+	movq %r8, -16(%rbp)
+	movq 16(%rbp), %r8
 	movq %r8, %rax
 	cmpq $10, %rax
 	movq %rax, %r8
 	jl IL0
 	jmp IL1
 IL0:
-	movq 16(%rbp), %rax
-	movq %rax, %r8
+	movq 16(%rbp), %r8
 	movq $48, %rax
 	addq %r8, %rax
 	movq %rax, %r8
@@ -80,8 +70,7 @@ IL0:
 	popq %rbx
 	jmp IL2
 IL1:
-	movq 16(%rbp), %rax
-	movq %rax, %r8
+	movq 16(%rbp), %r8
 	movq %r8, %rax
 	cqo
 	movq $10, %rbx
@@ -90,18 +79,15 @@ IL1:
 	pushq %r8
 	call print_int
 	popq %rbx
-	movq 16(%rbp), %rax
-	movq %rax, %r8
+	movq 16(%rbp), %r8
 	movq %r8, %rax
 	cqo
 	movq $10, %rbx
 	idivq %rbx
 	movq %rdx, %rax
 	movq %rax, %r8
-	movq %r8, %rax
-	movq %rax, -16(%rbp)
-	movq -16(%rbp), %rax
-	movq %rax, %r8
+	movq %r8, -16(%rbp)
+	movq -16(%rbp), %r8
 	movq $48, %rax
 	addq %r8, %rax
 	movq %rax, %r8
@@ -116,45 +102,35 @@ IL2:
 fact:
 	pushq %rbp
 	movq %rsp, %rbp
-	subq $24, %rsp
+	subq $32, %rsp
 	movq $1, %r9
-	movq %r9, %rax
-	movq %rax, -24(%rbp)
+	movq %r9, -24(%rbp)
 	movq $2, %r9
-	movq %r9, %rax
-	movq %rax, -16(%rbp)
+	movq %r9, -32(%rbp)
 	jmp WL3
 WL3:
-	movq -16(%rbp), %rax
-	movq %rax, %r9
-	movq 16(%rbp), %rax
-	movq %rax, %r8
+	movq -32(%rbp), %r9
+	movq 16(%rbp), %r8
 	movq %r9, %rax
 	cmpq %r8, %rax
 	movq %rax, %r8
 	jle WL4
 	jmp WL5
 WL4:
-	movq -24(%rbp), %rax
-	movq %rax, %r8
-	movq -16(%rbp), %rax
-	movq %rax, %r9
+	movq -24(%rbp), %r8
+	movq -32(%rbp), %r9
 	movq %r8, %rax
 	imulq %r9, %rax
 	movq %rax, %r9
-	movq %r9, %rax
-	movq %rax, -24(%rbp)
-	movq -16(%rbp), %rax
-	movq %rax, %r9
+	movq %r9, -24(%rbp)
+	movq -32(%rbp), %r9
 	movq %r9, %rax
 	addq $1, %rax
 	movq %rax, %r9
-	movq %r9, %rax
-	movq %rax, -16(%rbp)
+	movq %r9, -32(%rbp)
 	jmp WL3
 WL5:
-	movq -24(%rbp), %rax
-	movq %rax, %r9
+	movq -24(%rbp), %r9
 	movq %r9, %rax
 	movq %rbp, %rsp
 	popq %rbp

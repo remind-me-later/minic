@@ -42,8 +42,6 @@ getUsedTemps inst = case inst of
   Assign {src} -> getOperandTemps src
   UnaryOp {src} -> getOperandTemps src
   BinOp {left, right} -> getOperandTemps left <> getOperandTemps right
-  Load {} -> Set.empty -- variables, not temps
-  Store {src} -> getOperandTemps src
   Call {} -> Set.empty -- args passed via Param instructions
   Param {param} -> getOperandTemps param
 
@@ -53,7 +51,6 @@ getDefinedTemps inst = case inst of
   Assign {dst} -> getOperandTemps dst
   UnaryOp {dst} -> getOperandTemps dst
   BinOp {dst} -> getOperandTemps dst
-  Load {dst} -> getOperandTemps dst
   Call {ret = Just (Temp ret)} -> Set.singleton ret
   _ -> Set.empty
 
