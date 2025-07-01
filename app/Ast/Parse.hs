@@ -3,7 +3,7 @@
 module Ast.Parse (program) where
 
 import Ast.Types
-import Control.Applicative (Alternative (many, (<|>)), optional)
+import Control.Applicative (Alternative (many, (<|>)), Applicative (liftA2), optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 import TypeSystem
@@ -84,12 +84,12 @@ char = lex $ do
     validChar c = c /= '\'' && c /= '\\' && c >= ' ' && c <= '~'
     escapeChar =
       PC.choice
-        [ PC.char '\\' $> '\\'
-        , PC.char '\'' $> '\''
-        , PC.char '\"' $> '\"'
-        , PC.char 'n' $> '\n'
-        , PC.char 'r' $> '\r'
-        , PC.char 't' $> '\t'
+        [ PC.char '\\' $> '\\',
+          PC.char '\'' $> '\'',
+          PC.char '\"' $> '\"',
+          PC.char 'n' $> '\n',
+          PC.char 'r' $> '\r',
+          PC.char 't' $> '\t'
         ]
 
 exp :: PC.Parser RawExp

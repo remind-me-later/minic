@@ -1,24 +1,14 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Mir.Types
-  ( Temp,
-    Label,
-    Var (..),
-    Operand (..),
-    Inst (..),
-    BasicBlock (..),
-    Fun (..),
-    Program (..),
-    ExternFun (..),
-  )
-where
+module Mir.Types where
 
+import Data.Set
 import Env qualified
 import TypeSystem
 
 type Temp = Int
 
-type Label = String
+type BlockId = String
 
 data Var
   = Local {id :: Id}
@@ -44,6 +34,19 @@ instance Show Operand where
   show (ConstChar c) = "const " ++ show c
   show (Temp t) = "t" ++ show t
 
+data Terminator
+  = Return {retVal :: Maybe Temp}
+  | Jump {target :: BlockId}
+  | CondJump {cond :: Temp, trueBlockId :: BlockId, falseBlockId :: BlockId}
+  deriving (Eq)
+
+instance Show Terminator where
+  show (Return Nothing) = "return"
+  show (Return (Just t)) = "return t" ++ show t
+  show (Jump target) = "goto " ++ target
+  show (CondJump cond trueBlockId falseBlockId) =
+    "if t" ++ show cond ++ " then goto " ++ trueBlockId ++ "else goto " ++ falseBlockId
+
 data Inst
   = Mov {dst :: Temp, srcOp :: Operand}
   | UnaryOp {dst :: Temp, unop :: UnaryOp, unsrc :: Operand}
@@ -52,9 +55,6 @@ data Inst
   | Store {dstVar :: Var, src :: Temp}
   | Call {ret :: Maybe Temp, funId :: Id, argCount :: Int}
   | Param {param :: Temp}
-  | Return {retVal :: Maybe Temp}
-  | Jump {target :: Label}
-  | CondJump {cond :: Temp, trueLabel :: Label, falseLabel :: Label}
   deriving (Eq)
 
 instance Show Inst where
@@ -67,51 +67,63 @@ instance Show Inst where
   show Call {ret = Just t, funId, argCount} = "t" ++ show t ++ " = call " ++ funId ++ ", " ++ show argCount
   show Call {ret = Nothing, funId, argCount} = "call " ++ funId ++ ", " ++ show argCount
   show Param {param} = "param " ++ "t" ++ show param
-  show Return {retVal = Just t} = "return " ++ "t" ++ show t
-  show Return {retVal = Nothing} = "return"
-  show Jump {target} = "goto " ++ target
-  show CondJump {cond, trueLabel, falseLabel} =
-    "if " ++ "t" ++ show cond ++ " then goto " ++ trueLabel ++ " else goto " ++ falseLabel
 
--- A Basic Block is a sequence of instructions that starts with a label
+-- A Basic Block is a sequence of instructions that starts with a blockId
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 -- For simplicity here, we'll just list instructions and assume the last one is control flow.
 -- A more rigorous CFG would explicitly link blocks.
 data BasicBlock = BasicBlock
-  { label :: Label,
-    insts :: [Inst]
+  { blockId :: BlockId,
+    insts :: [Inst],
+    terminator :: Terminator
   }
   deriving (Eq)
 
 instance Show BasicBlock where
-  show (BasicBlock label instructions) =
-    label ++ ":\n" ++ unlines (("  " ++) . show <$> instructions)
+  show (BasicBlock blockId insts terminator) =
+    blockId
+      ++ ":\n"
+      ++ unlines (("  " ++) . show <$> insts)
+      ++ "  "
+      ++ show terminator
+
+data CFG = CFG
+  { entryBlockId :: BlockId,
+    exitBlocks :: Set BlockId,
+    blocks :: [BasicBlock]
+  }
+  deriving (Eq)
+
+instance Show CFG where
+  show (CFG entryBlockId exitBlocks blocks) =
+    "CFG:\n"
+      ++ "Entry Block: "
+      ++ entryBlockId
+      ++ "\n"
+      ++ "Exit Blocks: "
+      ++ unwords (show <$> toList exitBlocks)
+      ++ "\n"
+      ++ "Blocks:\n"
+      ++ unlines (show <$> blocks)
 
 data Fun = Fun
   { id :: Id,
     args :: [Env.Symbol],
     locals :: [Env.Symbol],
-    entryLabel :: Label,
-    blocks :: [BasicBlock]
+    cfg :: CFG
   }
   deriving (Eq)
 
 instance Show Fun where
-  show (Fun name args locals entryLabel blocks) =
+  show (Fun id args locals cfg) =
     "Function: "
-      ++ name
-      ++ "\n"
-      ++ "Args: "
+      ++ id
+      ++ "\nArguments: "
       ++ unwords (show <$> args)
-      ++ "\n"
-      ++ "Locals: "
+      ++ "\nLocals: "
       ++ unwords (show <$> locals)
       ++ "\n"
-      ++ "Entry: "
-      ++ entryLabel
-      ++ "\n"
-      ++ "Blocks:\n"
-      ++ unlines (reverse $ show <$> blocks)
+      ++ show cfg
 
 newtype ExternFun = ExternFun
   { externId :: Id

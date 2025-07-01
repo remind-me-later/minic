@@ -1,13 +1,14 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-module Mir.Translate
-  ( transProgram,
-  )
-where
+module Mir.Translate where
+
+-- ( transProgram,
+-- )
 
 import Ast qualified
-import Control.Monad (foldM, foldM_)
+import Control.Monad (foldM, foldM_, unless)
 import Control.Monad.State (State, gets, modify', runState)
+import Data.Set qualified as Set
 import Env qualified
 import Mir.Types qualified as Mir
 import TypeSystem (Id, Ty (..), sizeOf)
@@ -15,7 +16,9 @@ import Prelude hiding (lookup)
 
 data TranslationState = TranslationState
   { tmp :: Mir.Temp,
-    label :: Int,
+    blockId :: Int,
+    curBlockId :: Mir.BlockId,
+    currentInsts :: [Mir.Inst],
     blocks :: [Mir.BasicBlock],
     envs :: Env.EnvStack
   }
@@ -23,18 +26,34 @@ data TranslationState = TranslationState
 incTmp :: TranslationState -> TranslationState
 incTmp ts = ts {tmp = ts.tmp + 1}
 
-incLabel :: TranslationState -> TranslationState
-incLabel ts = ts {label = ts.label + 1}
+incBlockId :: TranslationState -> TranslationState
+incBlockId ts = ts {blockId = ts.blockId + 1}
 
 addInstsToBlock :: [Mir.Inst] -> TranslationState -> TranslationState
-addInstsToBlock insts ts@TranslationState {blocks = curBlock : restBlocks} =
-  ts {blocks = curBlock {Mir.insts = curBlock.insts ++ insts} : restBlocks}
-addInstsToBlock _ TranslationState {blocks = []} =
-  error "No current block to add instructions to"
+addInstsToBlock insts ts@TranslationState {currentInsts = curInsts} =
+  ts {currentInsts = curInsts ++ insts}
 
-pushBlock :: String -> TranslationState -> TranslationState
-pushBlock label ts =
-  ts {blocks = Mir.BasicBlock {label, insts = []} : ts.blocks}
+setCurBlockId :: Mir.BlockId -> TranslationState -> TranslationState
+setCurBlockId blockId ts = ts {curBlockId = blockId}
+
+cfgFromBlocks :: [Mir.BasicBlock] -> Mir.CFG
+cfgFromBlocks blocks =
+  let entryBlockId = case blocks of
+        [] -> error "No blocks to create CFG"
+        (Mir.BasicBlock {blockId} : _) -> blockId
+      exitBlocks =
+        foldr
+          ( \(Mir.BasicBlock {terminator}) acc -> case terminator of
+              (Mir.Return {}) -> acc ++ [entryBlockId]
+              _ -> acc
+          )
+          mempty
+          blocks
+   in Mir.CFG {entryBlockId, exitBlocks = Set.fromList exitBlocks, blocks}
+
+terminateBlock :: Mir.Terminator -> TranslationState -> TranslationState
+terminateBlock terminator ts =
+  ts {blocks = Mir.BasicBlock {blockId = ts.curBlockId, insts = ts.currentInsts, terminator} : ts.blocks, currentInsts = []}
 
 popBlocks :: TranslationState -> TranslationState
 popBlocks ts = ts {blocks = []}
@@ -222,74 +241,74 @@ transStmt stmt
           transExp exp
           t <- gets (.tmp)
           modify' incTmp
-          modify' (addInstsToBlock [Mir.Return {retVal = Just t}])
+          -- modify' (addInstsToBlock [Mir.Return {retVal = Just t}])
+          modify' $ terminateBlock Mir.Return {retVal = Just t}
         Nothing -> do
-          modify' (addInstsToBlock [Mir.Return {retVal = Nothing}])
+          modify' $ terminateBlock Mir.Return {retVal = Nothing}
   | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
-      l <- gets (.label)
-      modify' incLabel
-      let thenLabel = "if_then_" ++ show l
+      l <- gets (.blockId)
+      modify' incBlockId
+      let thenBlockId = "if_then_" ++ show l
       transExp cond
 
       case elseBody of
         Just elseBody -> do
-          l <- gets (.label)
-          modify' incLabel
-          let elseLabel = "if_else_" ++ show l
-          l <- gets (.label)
-          modify' incLabel
-          let endLabel = "if_end_" ++ show l
+          l <- gets (.blockId)
+          modify' incBlockId
+          let elseBlockId = "if_else_" ++ show l
+          l <- gets (.blockId)
+          modify' incBlockId
+          let endBlockId = "if_end_" ++ show l
 
           t <- gets (.tmp)
-          modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = elseLabel}])
-          _ <- transBlock thenLabel ifBody
-          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
-          _ <- transBlock elseLabel elseBody
-          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
-          modify' (pushBlock endLabel)
+          modify' $ terminateBlock Mir.CondJump {cond = t, trueBlockId = thenBlockId, falseBlockId = elseBlockId}
+          _ <- transBlock thenBlockId ifBody
+          modify' $ terminateBlock Mir.Jump {target = endBlockId}
+          _ <- transBlock elseBlockId elseBody
+          modify' $ terminateBlock Mir.Jump {target = endBlockId}
+          modify' (setCurBlockId endBlockId)
         Nothing -> do
-          l <- gets (.label)
-          modify' incLabel
-          let endLabel = "if_end_" ++ show l
+          l <- gets (.blockId)
+          modify' incBlockId
+          let endBlockId = "if_end_" ++ show l
 
           t <- gets (.tmp)
-          modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = thenLabel, falseLabel = endLabel}])
-          _ <- transBlock thenLabel ifBody
-          modify' (addInstsToBlock [Mir.Jump {target = endLabel}])
-          modify' (pushBlock endLabel)
+          modify' $ terminateBlock Mir.CondJump {cond = t, trueBlockId = thenBlockId, falseBlockId = endBlockId}
+          _ <- transBlock thenBlockId ifBody
+          modify' $ terminateBlock Mir.Jump {target = endBlockId}
+          modify' (setCurBlockId endBlockId)
   | Ast.WhileStmt {cond, body} <- stmt = do
-      l <- gets (.label)
-      modify' incLabel
-      let condLabel = "while_cond_" ++ show l
-      l <- gets (.label)
-      modify' incLabel
-      let loopLabel = "while_loop_" ++ show l
-      l <- gets (.label)
-      modify' incLabel
-      let endLabel = "while_end_" ++ show l
-      modify' incLabel
+      l <- gets (.blockId)
+      modify' incBlockId
+      let condBlockId = "while_cond_" ++ show l
+      l <- gets (.blockId)
+      modify' incBlockId
+      let loopBlockId = "while_loop_" ++ show l
+      l <- gets (.blockId)
+      modify' incBlockId
+      let endBlockId = "while_end_" ++ show l
+      modify' incBlockId
 
-      modify' (pushBlock condLabel)
+      modify' (setCurBlockId condBlockId)
       transExp cond
       t <- gets (.tmp)
-      modify' (addInstsToBlock [Mir.CondJump {cond = t, trueLabel = loopLabel, falseLabel = endLabel}])
+      modify' $ terminateBlock Mir.CondJump {cond = t, trueBlockId = loopBlockId, falseBlockId = endBlockId}
 
-      _ <- transBlock loopLabel body
-      modify' (addInstsToBlock [Mir.Jump {target = condLabel}])
+      _ <- transBlock loopBlockId body
+      modify' $ terminateBlock Mir.Jump {target = condBlockId}
 
-      modify' (pushBlock endLabel)
-  
+      modify' (setCurBlockId endBlockId)
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
-transBlock label Ast.Block {annot = scope, stmts} = do
-  modify' (pushBlock label)
+transBlock blockId Ast.Block {annot = scope, stmts} = do
+  modify' (setCurBlockId blockId)
   modify' (stackEnv scope)
   mapM_ transStmt stmts
   modify' popEnv
 
 transFun :: Ast.TypedFun -> State TranslationState Mir.Fun
 transFun Ast.Fun {id, args, body} = do
-  let entryLabel = id ++ "_entry"
+  let entryBlockId = id ++ "_entry"
 
   -- let args' = args
   let Ast.Block {annot} = body
@@ -321,11 +340,17 @@ transFun Ast.Fun {id, args, body} = do
           )
           (Env.toList annot)
 
-  _ <- transBlock entryLabel body
-  blocks <- gets (.blocks)
+  transBlock entryBlockId body
+
+  insts <- gets (.currentInsts)
+  unless (null insts) $
+    modify' (terminateBlock Mir.Return {retVal = Nothing})
+
+  cfg <- gets (cfgFromBlocks . reverse . (.blocks))
+
   modify' popBlocks
 
-  return Mir.Fun {id, args, locals, entryLabel, blocks}
+  return Mir.Fun {id, args, locals, cfg}
 
 transExternFun :: Ast.ExternFun -> Mir.ExternFun
 transExternFun Ast.ExternFun {id} = Mir.ExternFun {externId = id}
@@ -336,9 +361,11 @@ transProgram Ast.Program {annot, funcs, externFuns, mainFun} = do
   let initialState =
         TranslationState
           { tmp = 0,
-            label = 0,
+            blockId = 0,
             blocks = [],
-            envs = Env.pushEnv annot (Env.emptyEnvStack "global")
+            envs = Env.pushEnv annot (Env.emptyEnvStack "global"),
+            curBlockId = "global_entry",
+            currentInsts = []
           }
 
   let (funs, st) =

@@ -2,7 +2,7 @@
 
 module X86.Translate where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Control.Monad.State (State, gets, modify', runState)
 import Data.Map (Map, empty, fromList, lookup)
 import Env
@@ -303,26 +303,34 @@ translateInst inst
         Nothing -> return ()
   | Mir.Param {} <- inst = do
       return ()
-  | Mir.Return {} <- inst = do
-      -- Return value goes to rax
+
+translateTerminator :: Mir.Terminator -> State TranslationState ()
+translateTerminator terminator
+  | Mir.Return {} <- terminator = do
       popTempFromStack
       mapM_ emitAsmInst functionEpilogue
-  | Mir.Jump {target} <- inst = emitAsmInst $ Jmp {label = target}
-  | Mir.CondJump {trueLabel, falseLabel} <- inst = do
+  | Mir.Jump {target} <- terminator = emitAsmInst $ Jmp {label = target}
+  | Mir.CondJump {trueBlockId, falseBlockId} <- terminator = do
       jmpInstruction <-
         (gets (.lastJmpCond)) >>= \case
-          Just cond -> return $ JmpCond {cond = cond, label = trueLabel}
+          Just cond -> return $ JmpCond {cond = cond, label = trueBlockId}
           Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
-      emitAsmInst $ Jmp {label = falseLabel}
+      emitAsmInst $ Jmp {label = falseBlockId}
 
-translateBasicBlock :: Mir.BasicBlock -> State TranslationState ()
-translateBasicBlock (Mir.BasicBlock label insts) = do
-  emitAsmInst Label {label = label}
+translateBasicBlock :: Bool -> Mir.BasicBlock -> State TranslationState ()
+translateBasicBlock isMain Mir.BasicBlock {blockId, insts, terminator} = do
+  emitAsmInst Label {label = blockId}
   mapM_ translateInst insts
+  unless isMain $ translateTerminator terminator
+
+translateCfg :: Bool -> Mir.CFG -> State TranslationState ()
+translateCfg isMain Mir.CFG {blocks} = do
+  -- FIXME: should not rely on basic block order
+  mapM_ (translateBasicBlock isMain) blocks
 
 translateMainFun :: Mir.Fun -> State TranslationState ()
-translateMainFun Mir.Fun {locals, blocks} = do
+translateMainFun Mir.Fun {locals, cfg} = do
   let (frameSize, varOffsetList) =
         foldl
           ( \(a, offsets) s -> (a + sizeOf s.ty, offsets ++ [(s.id, -a)])
@@ -336,12 +344,12 @@ translateMainFun Mir.Fun {locals, blocks} = do
   let varOffsets = Data.Map.fromList varOffsetList
   modify' (\s -> s {varOffsets})
 
-  mapM_ translateBasicBlock (reverse blocks)
+  translateCfg True cfg
 
   mapM_ emitAsmInst mainFunctionEpilogue
 
 translateFun :: Mir.Fun -> State TranslationState ()
-translateFun Mir.Fun {id, args, locals, blocks} = do
+translateFun Mir.Fun {id, args, locals, cfg} = do
   -- Allocate space for local variables
   -- let stackFrameSize = length locals * 8 -- Assuming each argument and local variable is a QWORD (8 bytes)
   -- mapM_ emitAsmInst (functionPrologue id stackFrameSize)
@@ -384,7 +392,7 @@ translateFun Mir.Fun {id, args, locals, blocks} = do
           }
     )
 
-  mapM_ translateBasicBlock (reverse blocks)
+  translateCfg False cfg
 
   mapM_ emitAsmInst functionEpilogue
 
