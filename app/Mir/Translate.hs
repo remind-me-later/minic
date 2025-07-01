@@ -53,7 +53,11 @@ cfgFromBlocks blocks =
 
 terminateBlock :: Mir.Terminator -> TranslationState -> TranslationState
 terminateBlock terminator ts =
-  ts {blocks = Mir.BasicBlock {blockId = ts.curBlockId, insts = ts.currentInsts, terminator} : ts.blocks, currentInsts = []}
+  ts
+    { blocks = Mir.BasicBlock {blockId = ts.curBlockId, insts = ts.currentInsts, terminator} : ts.blocks,
+      currentInsts = [],
+      curBlockId = "terminated_"
+    }
 
 popBlocks :: TranslationState -> TranslationState
 popBlocks ts = ts {blocks = []}
@@ -344,6 +348,10 @@ transFun Ast.Fun {id, args, body} = do
 
   insts <- gets (.currentInsts)
   unless (null insts) $
+    modify' (terminateBlock Mir.Return {retVal = Nothing})
+
+  blockId <- gets (.curBlockId)
+  unless (blockId == "terminated_") $
     modify' (terminateBlock Mir.Return {retVal = Nothing})
 
   cfg <- gets (cfgFromBlocks . reverse . (.blocks))

@@ -45,7 +45,7 @@ instance Show Terminator where
   show (Return (Just t)) = "return t" ++ show t
   show (Jump target) = "goto " ++ target
   show (CondJump cond trueBlockId falseBlockId) =
-    "if t" ++ show cond ++ " then goto " ++ trueBlockId ++ "else goto " ++ falseBlockId
+    "if t" ++ show cond ++ " then goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
 
 data Inst
   = Mov {dst :: Temp, srcOp :: Operand}
@@ -59,9 +59,9 @@ data Inst
 
 instance Show Inst where
   show Mov {dst, srcOp} = "t" ++ show dst ++ " = " ++ show srcOp
-  show UnaryOp {dst, unop, unsrc} = "t" ++ show dst ++ " = " ++ show unop ++ " t" ++ show unsrc
+  show UnaryOp {dst, unop, unsrc} = "t" ++ show dst ++ " = " ++ show unop ++ show unsrc
   show BinOp {dst, binop, left, right} =
-    "t" ++ show dst ++ " = " ++ "t" ++ show left ++ " " ++ show binop ++ " " ++ "t" ++ show right
+    "t" ++ show dst ++ " = " ++ show left ++ " " ++ show binop ++ " " ++ show right
   show Load {dst, srcVar} = "t" ++ show dst ++ " = " ++ show srcVar
   show Store {dstVar, src} = show dstVar ++ " = t" ++ show src
   show Call {ret = Just t, funId, argCount} = "t" ++ show t ++ " = call " ++ funId ++ ", " ++ show argCount
