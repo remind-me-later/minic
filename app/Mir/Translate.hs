@@ -156,6 +156,8 @@ arrayAccess id (Mir.ConstInt idx) = do
     Just Env.Symbol {alloc = Env.Argument} -> do
       error "Array access on argument is not supported"
     _ -> error $ "Undefined array: " ++ id
+-- unsupported
+arrayAccess id _ = error $ "Array access with unsupported index type for array: " ++ id
 
 transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
@@ -276,6 +278,7 @@ transStmt stmt
       modify' (addInstsToBlock [Mir.Jump {target = condLabel}])
 
       modify' (pushBlock endLabel)
+  
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
 transBlock label Ast.Block {annot = scope, stmts} = do

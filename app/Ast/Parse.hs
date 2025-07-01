@@ -3,7 +3,7 @@
 module Ast.Parse (program) where
 
 import Ast.Types
-import Control.Applicative (Alternative (many, (<|>)), liftA2, optional)
+import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 import TypeSystem
@@ -75,13 +75,22 @@ num =
    in read <$> lex (PC.many1 (PC.satisfy isDigit))
 
 char :: PC.Parser Char
-char = do
-  let isChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ ['0' .. '9'] ++ [' ', '\'', '\\']
-   in lex $ do
-        _ <- PC.char '\''
-        c <- PC.satisfy isChar
-        _ <- PC.char '\''
-        return c
+char = lex $ do
+  _ <- PC.char '\''
+  c <- PC.try (PC.char '\\' *> escapeChar) <|> PC.satisfy validChar
+  _ <- PC.char '\''
+  return c
+  where
+    validChar c = c /= '\'' && c /= '\\' && c >= ' ' && c <= '~'
+    escapeChar =
+      PC.choice
+        [ PC.char '\\' $> '\\'
+        , PC.char '\'' $> '\''
+        , PC.char '\"' $> '\"'
+        , PC.char 'n' $> '\n'
+        , PC.char 'r' $> '\r'
+        , PC.char 't' $> '\t'
+        ]
 
 exp :: PC.Parser RawExp
 exp = eqexp

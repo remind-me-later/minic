@@ -111,6 +111,8 @@ loadVarToEax varId = do
               { src = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing},
                 dst = Reg Rax
               }
+        Mir.ConstChar _ ->
+          error "Cannot load a character variable into rax directly, use ConstInt instead"
         Mir.Temp _ -> do
           -- pop temp into rsi
           emitAsmInst Pop {op = Reg Rsi}
@@ -159,6 +161,8 @@ storeEaxToVar varId = do
               { src = Reg Rax,
                 dst = Mem {base = Rbp, disp = baseOffset - off * mult, index_scale = Nothing}
               }
+        Mir.ConstChar _ ->
+          error "Cannot store a character variable into rax directly, use ConstInt instead"
         Mir.Temp _ -> do
           -- pop temp into rsi
           emitAsmInst Pop {op = Reg Rsi}
@@ -184,6 +188,9 @@ translateInst inst
       case srcOp of
         Mir.ConstInt value -> do
           emitAsmInst Push {op = Imm value}
+          return ()
+        Mir.ConstChar value -> do
+          emitAsmInst Push {op = Imm (fromIntegral (fromEnum value))} -- Convert char to int
           return ()
         Mir.Temp _ -> do
           -- Assuming tempOperand is already in rax
@@ -262,6 +269,8 @@ translateInst inst
       case unsrc of
         Mir.ConstInt value -> do
           emitAsmInst $ Mov {src = Imm value, dst = Reg Rax} -- Move constant to rax
+        Mir.ConstChar value -> do
+          emitAsmInst $ Mov {src = Imm (fromIntegral (fromEnum value)), dst = Reg Rax} -- Convert char to int
         Mir.Temp _ -> do
           emitAsmInst Pop {op = Reg Rax} -- Pop the operand into rax
       case unop of
