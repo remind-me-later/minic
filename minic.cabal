@@ -91,6 +91,7 @@ executable minic
                         , containers >= 0.6
                         , parsec >= 3.1
                         , mtl >= 2.3
+                        , optparse-applicative >= 0.19
 
     -- Directories containing source files.
     hs-source-dirs:   app app/Mir app/Ast app/X86
