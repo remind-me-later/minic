@@ -45,17 +45,17 @@ instance Show Operand where
   show (StackOperand n) = "stack " ++ show n
 
 data Terminator
-  = Return {retVal :: Maybe Temp}
+  = Return {retVal :: Maybe Operand}
   | Jump {target :: BlockId}
-  | CondJump {cond :: Temp, trueBlockId :: BlockId, falseBlockId :: BlockId}
+  | CondJump {cond :: Operand, trueBlockId :: BlockId, falseBlockId :: BlockId}
   deriving (Eq)
 
 instance Show Terminator where
   show (Return Nothing) = "return"
-  show (Return (Just t)) = "return t" ++ show t
+  show (Return (Just t)) = "return " ++ show t
   show (Jump target) = "goto " ++ target
   show (CondJump cond trueBlockId falseBlockId) =
-    "if t" ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
+    "if " ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
 
 data Inst
   = Assign {dst :: Operand, src :: Operand}

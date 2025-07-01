@@ -231,7 +231,7 @@ transStmt stmt
           transExp exp
           t <- gets (.tmp)
           -- modify' (addInstsToBlock [Return {retVal = Just t}])
-          modify' $ terminateBlock Return {retVal = Just t}
+          modify' $ terminateBlock Return {retVal = Just $ Temp t}
         Nothing -> do
           modify' $ terminateBlock Return {retVal = Nothing}
   | Ast.IfStmt {cond, ifBody, elseBody} <- stmt = do
@@ -250,7 +250,7 @@ transStmt stmt
           let endBlockId = "IL" ++ show l
 
           t <- gets (.tmp)
-          modify' $ terminateBlock CondJump {cond = t, trueBlockId = thenBlockId, falseBlockId = elseBlockId}
+          modify' $ terminateBlock CondJump {cond = Temp t, trueBlockId = thenBlockId, falseBlockId = elseBlockId}
           _ <- transBlock thenBlockId ifBody
           modify' $ terminateBlock Jump {target = endBlockId}
           _ <- transBlock elseBlockId elseBody
@@ -262,7 +262,7 @@ transStmt stmt
           let endBlockId = "if_end_" ++ show l
 
           t <- gets (.tmp)
-          modify' $ terminateBlock CondJump {cond = t, trueBlockId = thenBlockId, falseBlockId = endBlockId}
+          modify' $ terminateBlock CondJump {cond = Temp t, trueBlockId = thenBlockId, falseBlockId = endBlockId}
           _ <- transBlock thenBlockId ifBody
           modify' $ terminateBlock Jump {target = endBlockId}
           modify' (setCurBlockId endBlockId)
@@ -283,7 +283,7 @@ transStmt stmt
       modify' (setCurBlockId condBlockId)
       transExp cond
       t <- gets (.tmp)
-      modify' $ terminateBlock CondJump {cond = t, trueBlockId = loopBlockId, falseBlockId = endBlockId}
+      modify' $ terminateBlock CondJump {cond = Temp t, trueBlockId = loopBlockId, falseBlockId = endBlockId}
 
       _ <- transBlock loopBlockId body
       modify' $ terminateBlock Jump {target = condBlockId}

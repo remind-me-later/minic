@@ -64,10 +64,10 @@ getOperandTemps _ = Set.empty
 
 -- Get temporaries used by terminators
 getTerminatorUses :: Terminator -> Set Temp
-getTerminatorUses (Return (Just t)) = Set.singleton t
-getTerminatorUses (Return Nothing) = Set.empty
-getTerminatorUses (Jump _) = Set.empty
-getTerminatorUses (CondJump cond _ _) = Set.singleton cond
+getTerminatorUses Return {retVal = Just t} = getOperandTemps t
+getTerminatorUses Return {retVal = Nothing} = Set.empty
+getTerminatorUses Jump {} = Set.empty
+getTerminatorUses CondJump {cond} = getOperandTemps cond
 
 -- Get successor blocks from terminator
 getSuccessors :: Terminator -> [BlockId]

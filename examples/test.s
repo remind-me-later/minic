@@ -9,41 +9,47 @@
 _start:
 	movq %rsp, %rbp
 	subq $24, %rsp
-main_entry:
-	pushq $10
-	popq %rax
+	movq $10, %r8
+	movq %r8, %rax
 	movq %rax, (%rbp)
-	pushq $0
-	popq %rax
+	movq $0, %r8
+	movq %r8, %rax
 	movq %rax, -8(%rbp)
-	pushq $5
+	movq $5, %r8
+	pushq %r8
 	call fact
 	popq %rbx
-	pushq %rax
-	popq %rax
+	movq %rax, %r8
+	movq %r8, %rax
 	movq %rax, -16(%rbp)
-	pushq $20
-	popq %rax
+	movq $20, %r8
+	movq %r8, %rax
 	movq %rax, -8(%rbp)
 	movq (%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_int
 	popq %rbx
-	pushq $32
+	movq $32, %r8
+	pushq %r8
 	call print
 	popq %rbx
 	movq -8(%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_int
 	popq %rbx
-	pushq $32
+	movq $32, %r8
+	pushq %r8
 	call print
 	popq %rbx
 	movq -16(%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_int
 	popq %rbx
-	pushq $10
+	movq $10, %r8
+	pushq %r8
 	call print
 	popq %rbx
 	movq $60, %rax
@@ -53,57 +59,57 @@ print_int:
 	pushq %rbp
 	movq %rsp, %rbp
 	subq $16, %rsp
-print_int_entry:
-	pushq $0
-	popq %rax
+	movq $0, %r8
+	movq %r8, %rax
 	movq %rax, -16(%rbp)
 	movq 16(%rbp), %rax
-	pushq %rax
-	movq $10, %rbx
-	popq %rax
-	cmpq %rbx, %rax
-	jl if_then_0
-	jmp if_else_1
-if_then_0:
+	movq %rax, %r8
+	movq %r8, %rax
+	cmpq $10, %rax
+	movq %rax, %r8
+	jl IL0
+	jmp IL1
+IL0:
 	movq 16(%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
 	movq $48, %rax
-	popq %rbx
-	addq %rbx, %rax
-	pushq %rax
+	addq %r8, %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_char
 	popq %rbx
-	jmp if_end_2
-if_else_1:
+	jmp IL2
+IL1:
 	movq 16(%rbp), %rax
-	pushq %rax
-	movq $10, %rbx
-	popq %rax
+	movq %rax, %r8
+	movq %r8, %rax
 	cqo
+	movq $10, %rbx
 	idivq %rbx
-	pushq %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_int
 	popq %rbx
 	movq 16(%rbp), %rax
-	pushq %rax
-	movq $10, %rbx
-	popq %rax
+	movq %rax, %r8
+	movq %r8, %rax
 	cqo
+	movq $10, %rbx
 	idivq %rbx
-	pushq %rdx
-	popq %rax
+	movq %rdx, %rax
+	movq %rax, %r8
+	movq %r8, %rax
 	movq %rax, -16(%rbp)
 	movq -16(%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
 	movq $48, %rax
-	popq %rbx
-	addq %rbx, %rax
-	pushq %rax
+	addq %r8, %rax
+	movq %rax, %r8
+	pushq %r8
 	call print_char
 	popq %rbx
-	jmp if_end_2
-if_end_2:
-	popq %rax
+	jmp IL2
+IL2:
 	movq %rbp, %rsp
 	popq %rbp
 	ret
@@ -111,48 +117,45 @@ fact:
 	pushq %rbp
 	movq %rsp, %rbp
 	subq $24, %rsp
-fact_entry:
-	pushq $1
-	popq %rax
+	movq $1, %r9
+	movq %r9, %rax
 	movq %rax, -24(%rbp)
-	pushq $2
-	popq %rax
+	movq $2, %r9
+	movq %r9, %rax
 	movq %rax, -16(%rbp)
-	jmp while_cond_3
-while_cond_3:
+	jmp WL3
+WL3:
 	movq -16(%rbp), %rax
-	pushq %rax
+	movq %rax, %r9
 	movq 16(%rbp), %rax
-	pushq %rax
-	popq %rbx
-	popq %rax
-	cmpq %rbx, %rax
-	jle while_loop_4
-	jmp while_end_5
-while_loop_4:
+	movq %rax, %r8
+	movq %r9, %rax
+	cmpq %r8, %rax
+	movq %rax, %r8
+	jle WL4
+	jmp WL5
+WL4:
 	movq -24(%rbp), %rax
-	pushq %rax
+	movq %rax, %r8
 	movq -16(%rbp), %rax
-	pushq %rax
-	popq %rbx
-	popq %rax
-	imulq %rbx, %rax
-	pushq %rax
-	popq %rax
+	movq %rax, %r9
+	movq %r8, %rax
+	imulq %r9, %rax
+	movq %rax, %r9
+	movq %r9, %rax
 	movq %rax, -24(%rbp)
 	movq -16(%rbp), %rax
-	pushq %rax
-	movq $1, %rbx
-	popq %rax
-	addq %rbx, %rax
-	pushq %rax
-	popq %rax
+	movq %rax, %r9
+	movq %r9, %rax
+	addq $1, %rax
+	movq %rax, %r9
+	movq %r9, %rax
 	movq %rax, -16(%rbp)
-	jmp while_cond_3
-while_end_5:
+	jmp WL3
+WL5:
 	movq -24(%rbp), %rax
-	pushq %rax
-	popq %rax
+	movq %rax, %r9
+	movq %r9, %rax
 	movq %rbp, %rsp
 	popq %rbp
 	ret

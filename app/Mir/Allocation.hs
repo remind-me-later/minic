@@ -134,7 +134,7 @@ transformInst allocation inst = case inst of
   Store {dstVar, src} ->
     Store
       { dstVar = transformVar allocation dstVar, -- Transform variables with temp offsets
-        src = src -- This is a bare Temp, needs separate handling
+        src = transformOperand allocation src -- Transform source operand
       }
   Call {ret, funId, argCount} ->
     Call
@@ -143,7 +143,9 @@ transformInst allocation inst = case inst of
         argCount = argCount
       }
   Param {param} ->
-    Param {param = param} -- This is a bare Temp, needs separate handling
+    Param
+      { param = transformOperand allocation param -- Transform parameter operand
+      }
 
 -- You'll also need this helper for Var transformations
 transformVar :: AllocationResult -> Var -> Var
@@ -168,10 +170,14 @@ transformTemp allocation temp =
 
 transformTerminator :: AllocationResult -> Terminator -> Terminator
 transformTerminator _allocation terminator = case terminator of
-  Return {retVal} -> Return {retVal = retVal} -- Return values are temps, not operands
-  Jump {target} -> Jump {target = target}
+  Return {retVal} -> Return {retVal = fmap (transformOperand _allocation) retVal}
+  Jump {target} -> Jump {target = target} -- No transformation needed for Jump
   CondJump {cond, trueBlockId, falseBlockId} ->
-    CondJump {cond = cond, trueBlockId = trueBlockId, falseBlockId = falseBlockId}
+    CondJump
+      { cond = transformOperand _allocation cond,
+        trueBlockId = trueBlockId,
+        falseBlockId = falseBlockId
+      }
 
 -- Transform operands based on allocation
 transformOperand :: AllocationResult -> Operand -> Operand

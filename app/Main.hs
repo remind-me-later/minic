@@ -94,7 +94,8 @@ main = do
         Left errs -> error $ "Type checking failed: " ++ show errs
 
       let mirProgram = Mir.Translate.transProgram typedAst
-      let x86Program = X86.Translate.translateProgram mirProgram
+      let allocationResult = Allocation.allocateProgram mirProgram
+      let x86Program = X86.Translate.translateProgram allocationResult
       putStrLn x86Program
     ["--x86", fileName, "-o", outFile] -> do
       contents <- readFile fileName
@@ -107,6 +108,7 @@ main = do
         Left errs -> error $ "Type checking failed: " ++ show errs
 
       let mirProgram = Mir.Translate.transProgram typedAst
-      let x86Program = X86.Translate.translateProgram mirProgram
+      let allocationResult = Allocation.allocateProgram mirProgram
+      let x86Program = X86.Translate.translateProgram allocationResult
       writeFile outFile x86Program
     _ -> putStrLn "Usage: compiler --mir <file> [-o <outfile>] | --x86 <file> [-o <outfile>] | --ast <file> | --semant <file>"

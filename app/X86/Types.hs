@@ -11,6 +11,14 @@ data Reg
   | Rdi
   | Rbp
   | Rsp
+  | R8
+  | R9
+  | R10
+  | R11
+  | R12
+  | R13
+  | R14
+  | R15
   deriving (Eq)
 
 instance Show Reg where
@@ -22,6 +30,14 @@ instance Show Reg where
   show Rdi = "%rdi"
   show Rbp = "%rbp"
   show Rsp = "%rsp"
+  show R8 = "%r8"
+  show R9 = "%r9"
+  show R10 = "%r10"
+  show R11 = "%r11"
+  show R12 = "%r12"
+  show R13 = "%r13"
+  show R14 = "%r14"
+  show R15 = "%r15"
 
 data Op
   = Imm Int
