@@ -39,7 +39,7 @@ data Terminator
 
 instance Show Terminator where
   show (Return Nothing) = "return"
-  show (Return (Just t)) = "return " ++ show t
+  show (Return (Just operand)) = "return " ++ show operand
   show (Jump target) = "goto " ++ target
   show (CondJump cond trueBlockId falseBlockId) =
     "if " ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
@@ -57,7 +57,7 @@ instance Show Inst where
   show UnaryOp {instDst, instUnop, instSrc} = show instDst ++ " = " ++ show instUnop ++ show instSrc
   show BinOp {instDst, instBinop, instLeft, instRight} =
     show instDst ++ " = " ++ show instLeft ++ " " ++ show instBinop ++ " " ++ show instRight
-  show Call {callRet = Just t, callFunId, callArgCount} = show t ++ " = call " ++ callFunId ++ ", " ++ show callArgCount
+  show Call {callRet = Just ret, callFunId, callArgCount} = show ret ++ " = call " ++ callFunId ++ ", " ++ show callArgCount
   show Call {callRet = Nothing, callFunId, callArgCount} = "call " ++ callFunId ++ ", " ++ show callArgCount
   show Param {paramOperand} = "param " ++ show paramOperand
 

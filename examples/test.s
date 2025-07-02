@@ -7,43 +7,19 @@
 .type print, @function
 _start:
 	movq %rsp, %rbp
-	subq $24, %rsp
-	movq $10, %r8
-	movq %r8, -24(%rbp)
-	movq $0, %r8
-	movq %r8, -16(%rbp)
+	subq $0, %rsp
 	movq $5, %r8
 	pushq %r8
 	call fact
-	popq %rbx
+	addq $8, %rsp
 	movq %rax, %r8
-	movq %r8, -8(%rbp)
-	movq $20, %r8
-	movq %r8, -16(%rbp)
-	movq -24(%rbp), %r8
 	pushq %r8
 	call print_int
-	popq %rbx
-	movq $32, %r8
-	pushq %r8
-	call print
-	popq %rbx
-	movq -16(%rbp), %r8
-	pushq %r8
-	call print_int
-	popq %rbx
-	movq $32, %r8
-	pushq %r8
-	call print
-	popq %rbx
-	movq -8(%rbp), %r8
-	pushq %r8
-	call print_int
-	popq %rbx
+	addq $8, %rsp
 	movq $10, %r8
 	pushq %r8
 	call print
-	popq %rbx
+	addq $8, %rsp
 	movq $60, %rax
 	xorq %rdi, %rdi
 	syscall
@@ -66,7 +42,7 @@ IL0:
 	movq %rax, %r8
 	pushq %r8
 	call print_char
-	popq %rbx
+	addq $8, %rsp
 	jmp IL2
 IL1:
 	movq 16(%rbp), %r8
@@ -77,7 +53,7 @@ IL1:
 	movq %rax, %r8
 	pushq %r8
 	call print_int
-	popq %rbx
+	addq $8, %rsp
 	movq 16(%rbp), %r8
 	movq %r8, %rax
 	cqo
@@ -92,7 +68,7 @@ IL1:
 	movq %rax, %r8
 	pushq %r8
 	call print_char
-	popq %rbx
+	addq $8, %rsp
 	jmp IL2
 IL2:
 	movq %rbp, %rsp

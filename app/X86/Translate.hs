@@ -2,7 +2,7 @@
 
 module X86.Translate where
 
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, when)
 import Control.Monad.State (State, gets, modify', runState)
 import Mir.Types qualified as Mir
 import TypeSystem qualified (BinOp (..), UnaryOp (..))
@@ -214,8 +214,10 @@ translateInst inst
         _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
   | Mir.Call {Mir.callFunId, Mir.callArgCount, Mir.callRet} <- inst = do
       emitAsmInst $ Call {callName = callFunId}
-      -- Remove arguments from the stack (if using stack calling convention)
-      forM_ [1 .. callArgCount] $ \_ -> emitAsmInst Pop {popOp = Reg Rbx}
+      -- Remove arguments from the stack (using stack calling convention)
+      when (callArgCount > 0) $ do
+        let stackOffset = 8 * callArgCount -- Each argument is pushed onto the stack
+        emitAsmInst $ Add {addSrc = Imm stackOffset, addDst = Reg Rsp} -- Clean up stack after call
       case callRet of
         Just retOperand -> do
           let retOp = translateOperand retOperand

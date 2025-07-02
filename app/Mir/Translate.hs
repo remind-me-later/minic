@@ -20,10 +20,18 @@ data TranslationState = TranslationState
     currentInsts :: [Inst],
     blocks :: [BasicBlock],
     envs :: Env.EnvStack,
+    varToTemp :: Map.Map Id Temp,
     stackOffsets :: Map.Map Id Int,
     currentLocalOffset :: Int, -- For locals (negative from RBP)
     currentArgOffset :: Int -- For arguments (positive from RBP)
   }
+
+allocateLocalToTmp :: Id -> State TranslationState Temp
+allocateLocalToTmp varId = do
+  currentTemp <- gets tmp
+  modify' $ \s@TranslationState {varToTemp} ->
+    s {varToTemp = Map.insert varId currentTemp varToTemp, tmp = currentTemp + 1}
+  return currentTemp
 
 -- Allocate stack slot for arguments (positive offsets from RBP)
 allocateArgSlot :: Id -> Ty -> State TranslationState Int
@@ -55,13 +63,18 @@ allocateLocalSlot varId ty = do
 getStackOffset :: Id -> State TranslationState (Maybe Int)
 getStackOffset varId = gets (Map.lookup varId . stackOffsets)
 
--- Convert identifier to StackOperand
 idToStackOperand :: Id -> State TranslationState Operand
 idToStackOperand varId = do
-  maybeOffset <- getStackOffset varId
-  case maybeOffset of
-    Just offset -> return $ StackOperand offset
-    Nothing -> error $ "Variable " ++ varId ++ " not allocated on stack"
+  -- check first if the variable is allocated on a temporary register
+  maybeTemp <- gets (Map.lookup varId . varToTemp)
+  case maybeTemp of
+    Just temp -> return $ Temp temp
+    Nothing -> do
+      -- If not, check if it's allocated on the stack
+      maybeOffset <- getStackOffset varId
+      case maybeOffset of
+        Just offset -> return $ StackOperand offset
+        Nothing -> error $ "Variable " ++ varId ++ " not allocated on stack or temp register"
 
 incTmp :: TranslationState -> TranslationState
 incTmp ts@TranslationState {tmp} = ts {tmp = tmp + 1}
@@ -176,7 +189,7 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
           modify' $ addInstsToBlock [Mir.Types.Call {callRet = Nothing, callFunId = callId, callArgCount = length callArgs}]
         _ -> do
           t <- gets tmp
-          modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just $ Temp t, callFunId = callId, callArgCount = length callArgs}]
+          modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just (Temp t), callFunId = callId, callArgCount = length callArgs}]
   | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- exp = do
       -- Accessing an array with a constant index
       let idx = ConstInt numberValue
@@ -223,11 +236,23 @@ transStmt stmt
   | Ast.ExpStmt {stmtExp} <- stmt = do
       transExp stmtExp
   | Ast.LetStmt {letVarDef = Ast.VarDef {varDefId, varDefTy}, letExp} <- stmt = do
-      _ <- allocateLocalSlot varDefId varDefTy
-      transExp letExp
-      t <- gets tmp
-      stackOp <- idToStackOperand varDefId
-      modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = Temp t}])
+      -- If the variable is a scalar allocate it on a temporary register
+      -- If it's an array, allocate it on the stack
+      symb <- gets (lookup varDefId)
+      case symb of
+        -- Just Env.Symbol {Env.symbolAlloc = Env.Local, Env.symbolTy = TypeSystem.IntTy} -> do
+        --   transExp letExp
+        --   t <- gets tmp -- Get the temp containing the expression result
+        --   -- Treat variable as temp
+        --   dstt <- allocateLocalToTmp varDefId
+        --   modify' $ addInstsToBlock [Assign {instDst = Temp dstt, instSrc = Temp t}]
+        _ -> do
+          -- Allocate on stack
+          _ <- allocateLocalSlot varDefId varDefTy
+          transExp letExp
+          t <- gets tmp
+          stackOp <- idToStackOperand varDefId
+          modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = Temp t}])
   | Ast.AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- gets tmp
@@ -270,10 +295,8 @@ transStmt stmt
         Just exp -> do
           transExp exp
           t <- gets tmp
-          -- modify' (addInstsToBlock [Return {retVal = Just t}])
-          modify' $ terminateBlock Return {retOperand = Just $ Temp t}
-        Nothing -> do
-          modify' $ terminateBlock Return {retOperand = Nothing}
+          modify' $ terminateBlock (Return {retOperand = Just (Temp t)})
+        Nothing -> modify' $ terminateBlock (Return {retOperand = Nothing})
   | Ast.IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
       l <- gets blockId
       modify' incBlockId
@@ -346,7 +369,9 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
   -- Locals start at RBP - 8 (first local below RBP)
   modify' $ \s ->
     s
-      { stackOffsets = Map.empty,
+      { tmp = 0,
+        stackOffsets = Map.empty,
+        varToTemp = Map.empty,
         currentArgOffset = 16, -- Start after saved RBP + return address
         currentLocalOffset = 0 -- Start at RBP, grow downward
       }
@@ -410,7 +435,8 @@ transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFun
             currentInsts = [],
             stackOffsets = mempty,
             currentLocalOffset = 0,
-            currentArgOffset = 0
+            currentArgOffset = 0,
+            varToTemp = Map.empty
           }
 
   let (funs, st) =

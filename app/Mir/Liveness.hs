@@ -1,3 +1,4 @@
+-- Dragon book: 9.2.5 Live-Variable Analysis
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Mir.Liveness
@@ -56,7 +57,6 @@ getDefinedTemps inst = case inst of
   Assign {instDst} -> getOperandTemps instDst
   UnaryOp {instDst} -> getOperandTemps instDst
   BinOp {instDst} -> getOperandTemps instDst
-  Call {callRet = Just (Temp ret)} -> Set.singleton ret
   _ -> Set.empty
 
 getOperandTemps :: Operand -> Set Temp
@@ -64,10 +64,8 @@ getOperandTemps (Temp t) = Set.singleton t
 getOperandTemps _ = Set.empty
 
 getTerminatorUses :: Terminator -> Set Temp
-getTerminatorUses Return {retOperand = Just t} = getOperandTemps t
-getTerminatorUses Return {retOperand = Nothing} = Set.empty
-getTerminatorUses Jump {} = Set.empty
 getTerminatorUses CondJump {condOperand} = getOperandTemps condOperand
+getTerminatorUses _ = Set.empty
 
 -- Get successor blocks from terminator
 getSuccessors :: Terminator -> [BlockId]
