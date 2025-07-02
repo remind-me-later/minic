@@ -127,6 +127,11 @@ executeCommand cmd = case cmd of
     case processedAst of
       Right mirProgram -> do
         let allocationResult = Allocation.allocateProgram mirProgram
+        let livenessInfo = Liveness.analyzeProgramLiveness mirProgram
+        print mirProgram
+        putStrLn "Liveness Information:"
+        print livenessInfo
+        putStrLn "Allocation Result:"
         print allocationResult
       Left err -> error err
   MirToFile fileName outFile -> do

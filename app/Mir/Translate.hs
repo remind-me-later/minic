@@ -240,12 +240,12 @@ transStmt stmt
       -- If it's an array, allocate it on the stack
       symb <- gets (lookup varDefId)
       case symb of
-        -- Just Env.Symbol {Env.symbolAlloc = Env.Local, Env.symbolTy = TypeSystem.IntTy} -> do
-        --   transExp letExp
-        --   t <- gets tmp -- Get the temp containing the expression result
-        --   -- Treat variable as temp
-        --   dstt <- allocateLocalToTmp varDefId
-        --   modify' $ addInstsToBlock [Assign {instDst = Temp dstt, instSrc = Temp t}]
+        Just Env.Symbol {Env.symbolAlloc = Env.Local, Env.symbolTy = TypeSystem.IntTy} -> do
+          transExp letExp
+          t <- gets tmp -- Get the temp containing the expression result
+          -- Treat variable as temp
+          dstt <- allocateLocalToTmp varDefId
+          modify' $ addInstsToBlock [Assign {instDst = Temp dstt, instSrc = Temp t}]
         _ -> do
           -- Allocate on stack
           _ <- allocateLocalSlot varDefId varDefTy

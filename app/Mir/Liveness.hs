@@ -65,6 +65,7 @@ getOperandTemps _ = Set.empty
 
 getTerminatorUses :: Terminator -> Set Temp
 getTerminatorUses CondJump {condOperand} = getOperandTemps condOperand
+getTerminatorUses Return {retOperand} = maybe Set.empty getOperandTemps retOperand
 getTerminatorUses _ = Set.empty
 
 -- Get successor blocks from terminator
@@ -117,18 +118,17 @@ performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn ini
             blockIds = Map.keys blockMap
             (newLiveIn, newLiveOut) =
               foldr
-                (updateBlock blockMap predecessors oldLiveOut)
+                (updateBlock blockMap predecessors)
                 (oldLiveIn, oldLiveOut)
                 blockIds
 
             updateBlock ::
               Map BlockId BasicBlock ->
               Map BlockId [BlockId] ->
-              Map BlockId LiveSet ->
               BlockId ->
               (Map BlockId LiveSet, Map BlockId LiveSet) ->
               (Map BlockId LiveSet, Map BlockId LiveSet)
-            updateBlock blockMap _predecessors _oldLiveOut blockId (liveIn, liveOut) =
+            updateBlock blockMap predecessors blockId (liveIn, liveOut) =
               case Map.lookup blockId blockMap of
                 Nothing -> (liveIn, liveOut)
                 Just block -> (Map.insert blockId newIn liveIn, Map.insert blockId newOut liveOut)
@@ -140,21 +140,29 @@ performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn ini
                     -- Calculate used and defined temps for this block
                     (used, defined) = analyzeBlock block
 
-                    -- IN[B] = USE[B] ∪ (OUT[B] - DEF[B])
-                    newIn = used `Set.union` (newOut `Set.difference` defined)
+                    -- Entry blocks should always have empty IN sets
+                    -- IN[B] = USE[B] ∪ (OUT[B] - DEF[B]) for non-entry blocks
+                    isEntryBlock = null (Map.findWithDefault [] blockId predecessors)
+                    newIn =
+                      if isEntryBlock 
+                        then Set.empty
+                        else
+                          used `Set.union` (newOut `Set.difference` defined)
               where
-                -- Analyze a block to get used and defined temporaries
+                -- Analyze a block to get variables used before
+                -- and variables defined in it (defined)
+                -- This is done in reverse order to ensure liveness is calculated correctly
                 analyzeBlock :: BasicBlock -> (Set Temp, Set Temp)
-                analyzeBlock (BasicBlock _ insts term) = (finalUsed, defined)
+                analyzeBlock (BasicBlock _ insts term) = (used, defined)
                   where
-                    -- Process instructions in reverse order for accurate liveness
-                    (used, defined) = foldr processInstruction (Set.empty, Set.empty) insts
                     termUses = getTerminatorUses term
-                    finalUsed = used `Set.union` termUses
+                    (used, defined) = foldr processInstruction (termUses, Set.empty) insts
 
                     processInstruction :: Inst -> (Set Temp, Set Temp) -> (Set Temp, Set Temp)
                     processInstruction inst (used, defined) = (newUsed, newDefined)
                       where
+                        -- `used` are the temps used before definition until now in the block (reverse order)
+                        -- `defined` are the temps defined in the block
                         instUses = getUsedTemps inst
                         instDefs = getDefinedTemps inst
                         -- ReAssigne newly defined temps from used set, add new uses
