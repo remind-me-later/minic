@@ -6,6 +6,7 @@ import Ast.Parse qualified
 import Ast.Semant qualified
 import Ast.Types qualified
 import Data.Map qualified as Map
+import Mir qualified as Mir.CopyPropagation
 import Mir.Allocation qualified as Allocation
 import Mir.Interference qualified as Interference
 import Mir.Liveness qualified as Liveness
@@ -22,6 +23,7 @@ data Command
   | ShowMirLive String
   | ShowMirInterference String
   | ShowMirColor String
+  | ShowMirOptimized String
   | MirToFile String String
   | ShowX86 String
   | X86ToFile String String
@@ -51,13 +53,15 @@ mirParser = do
   liveFlag <- switch (long "live" <> help "Show liveness analysis")
   colorFlag <- switch (long "color" <> help "Show register allocation")
   interferenceFlag <- switch (long "interference" <> help "Show interference graph")
+  optimizedFlag <- switch (long "opt" <> help "Show optimized MIR")
   outFile <- optional (strOption (short 'o' <> metavar "OUTFILE" <> help "Output file"))
 
-  pure $ case (liveFlag, colorFlag, outFile, interferenceFlag) of
-    (True, _, _, _) -> ShowMirLive file
-    (_, True, _, _) -> ShowMirColor file
-    (_, _, Just out, _) -> MirToFile file out
-    (_, _, _, True) -> ShowMirInterference file
+  pure $ case (liveFlag, colorFlag, outFile, interferenceFlag, optimizedFlag) of
+    (True, _, _, _, _) -> ShowMirLive file
+    (_, True, _, _, _) -> ShowMirColor file
+    (_, _, Just out, _, _) -> MirToFile file out
+    (_, _, _, True, _) -> ShowMirInterference file
+    (_, _, _, _, True) -> ShowMirOptimized file
     _ -> ShowMir file
 
 x86Parser :: Parser Command
@@ -139,6 +143,13 @@ executeCommand cmd = case cmd of
         putStrLn "Allocation Result:"
         print allocationResult
       Left err -> error err
+  ShowMirOptimized fileName -> do
+    processedAst <- processToMir fileName
+    case processedAst of
+      Right mirProgram -> do
+        let optimizedProgram = Mir.CopyPropagation.optimizeProgram mirProgram
+        print optimizedProgram
+      Left err -> error err
   MirToFile fileName outFile -> do
     processedAst <- processToMir fileName
     case processedAst of
@@ -165,7 +176,8 @@ executeCommand cmd = case cmd of
     processedAst <- processToMir fileName
     case processedAst of
       Right mirProgram -> do
-        let allocationResult = Allocation.allocateProgram mirProgram
+        let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
+        let allocationResult = Allocation.allocateProgram optMirProgram
         let x86Program = X86.Translate.translateProgram allocationResult
         writeFile outFile x86Program
       Left err -> error err
