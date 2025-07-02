@@ -4,19 +4,32 @@ module Mir.Interference where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Mir.Liveness
 import Mir.Types
+import TypeSystem qualified
 
 -- Interference graph: each temp maps to set of interfering temps
-type InterferenceGraph = Map Temp (Set Temp)
+newtype InterferenceGraph = InterferenceGraph (Map Temp (Set Temp))
+
+instance Show InterferenceGraph where
+  show (InterferenceGraph graph) =
+    "InterferenceGraph:\n"
+      ++ unlines
+        [ "Temp t"
+            ++ show t
+            ++ " interferes with: "
+            ++ unwords (map (("t" ++) . show) (Set.toList interferers))
+          | (t, interferers) <- Map.toList graph
+        ]
 
 -- Build interference graph from liveness info
 buildInterferenceGraph :: CFG -> LivenessInfo -> InterferenceGraph
 buildInterferenceGraph cfg liveness =
   let allTemps = getAllTemps cfg
-      initialGraph = Map.fromList [(t, Set.empty) | t <- Set.toList allTemps]
+      initialGraph = InterferenceGraph $ Map.fromList [(t, Set.empty) | t <- Set.toList allTemps]
    in foldr (addBlockInterferences liveness) initialGraph (cfgBlocks cfg)
   where
     -- Add interferences for a single block
@@ -31,11 +44,12 @@ buildInterferenceGraph cfg liveness =
       where
         -- Add interferences for a single instruction
         addInstInterferences :: LivenessInfo -> BlockId -> Inst -> InterferenceGraph -> InterferenceGraph
-        addInstInterferences _liveness _blockId inst graph =
+        addInstInterferences liveness blockId inst graph =
           let defined = getDefinedTemps inst
-              used = getUsedTemps inst
+              -- Get live temps at this instruction point
+              liveAtInst = getLiveAtInstruction liveness blockId inst
            in -- A defined temp interferes with all live temps (except itself)
-              foldr (\def -> addTempInterferences def (used <> defined)) graph (Set.toList defined)
+              foldr (\def -> addTempInterferences def (Set.delete def liveAtInst)) graph (Set.toList defined)
 
         -- Add all pairwise interferences in a set
         addInterferences :: Set Temp -> InterferenceGraph -> InterferenceGraph
@@ -57,7 +71,8 @@ buildInterferenceGraph cfg liveness =
 
         -- Add interference between two temps
         addInterference :: Temp -> Temp -> InterferenceGraph -> InterferenceGraph
-        addInterference t1 t2 graph = Map.insertWith Set.union t2 (Set.singleton t1) graph'
+        addInterference t1 t2 (InterferenceGraph graph) =
+          InterferenceGraph $ Map.insertWith Set.union t2 (Set.singleton t1) graph'
           where
             graph' = Map.insertWith Set.union t1 (Set.singleton t2) graph
 
@@ -76,3 +91,16 @@ getAllTemps cfg =
        in instTemps <> termTemps
 
     getInstTemps inst = getUsedTemps inst <> getDefinedTemps inst
+
+functionInterferenceGraph :: Fun -> InterferenceGraph
+functionInterferenceGraph fun =
+  let cfg = funCfg fun
+      liveness = performLivenessAnalysis cfg
+   in buildInterferenceGraph cfg liveness
+
+programInterferenceGraph :: Program -> Map TypeSystem.Id InterferenceGraph
+programInterferenceGraph Program {programFuns, programMainFun} =
+  Map.fromList
+    [ (funId fun, functionInterferenceGraph fun)
+      | fun <- programFuns ++ maybeToList programMainFun
+    ]

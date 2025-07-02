@@ -3,6 +3,7 @@ module Mir
     module Mir.Translate,
     module Mir.Liveness,
     module Mir.Allocation,
+    module Mir.Interference,
   )
 where
 
@@ -11,6 +12,12 @@ import Mir.Allocation
     RegisterAssignment,
     SpillLocation (..),
     allocateProgram,
+  )
+import Mir.Interference
+  ( InterferenceGraph,
+    buildInterferenceGraph,
+    functionInterferenceGraph,
+    programInterferenceGraph,
   )
 import Mir.Liveness
   ( LivenessInfo (..),

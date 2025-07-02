@@ -24,15 +24,13 @@ int fact(int n) {
 }
 
 void main() {
-    // int arr[3] = {10, 0, fact(5)};
-    // arr[1] = 20;
-    // print_int(arr[0]);
-    // print(' ');
-    // print_int(arr[1]);
-    // print(' ');
-    // print_int(arr[2]);
-    // print('\n');
-    print_int(fact(5));
+    int arr[3] = {10, 0, fact(5)};
+    arr[1] = 20;
+    print_int(arr[0]);
+    print(' ');
+    print_int(arr[1]);
+    print(' ');
+    print_int(arr[2]);
     print('\n');
 }
 

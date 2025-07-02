@@ -24,14 +24,14 @@ data AllocationResult = AllocationResult
 
 -- Simple greedy graph coloring
 colorGraph :: InterferenceGraph -> Maybe RegisterAssignment
-colorGraph graph = colorTemps graph sortedTemps Map.empty
+colorGraph g@(InterferenceGraph graph) = colorTemps g sortedTemps Map.empty
   where
     temps = Map.keys graph
-    sortedTemps = sortByDegree graph temps
+    sortedTemps = sortByDegree g temps
 
 -- Sort temporaries by interference degree (most constrained first)
 sortByDegree :: InterferenceGraph -> [Temp] -> [Temp]
-sortByDegree graph = sortOn (negate . getDegree)
+sortByDegree (InterferenceGraph graph) = sortOn (negate . getDegree)
   where
     getDegree t = Set.size $ Map.findWithDefault Set.empty t graph
 
@@ -45,7 +45,7 @@ colorTemps graph (temp : rest) assignment =
 
 -- Find an available register for a temporary
 findAvailableRegister :: InterferenceGraph -> Temp -> RegisterAssignment -> Maybe Register
-findAvailableRegister graph temp assignment =
+findAvailableRegister (InterferenceGraph graph) temp assignment =
   case availableRegs of
     (reg : _) -> Just reg
     [] -> Nothing
@@ -86,10 +86,11 @@ selectSpillCandidates graph temps =
 
 -- ReAssigne spilled temporaries from interference graph
 reAssigneSpilledFromGraph :: [Temp] -> InterferenceGraph -> InterferenceGraph
-reAssigneSpilledFromGraph spilled graph =
+reAssigneSpilledFromGraph spilled (InterferenceGraph graph) =
   let spilledSet = Set.fromList spilled
-   in Map.map (Set.filter (`Set.notMember` spilledSet)) $
-        Map.filterWithKey (\k _ -> k `Set.notMember` spilledSet) graph
+   in InterferenceGraph $
+        Map.map (Set.filter (`Set.notMember` spilledSet)) $
+          Map.filterWithKey (\k _ -> k `Set.notMember` spilledSet) graph
 
 -- Apply register allocation to transform MIR
 applyAllocation :: AllocationResult -> Fun -> Fun

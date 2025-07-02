@@ -8,6 +8,8 @@ module Mir.Liveness
     getUsedTemps,
     getDefinedTemps,
     getTerminatorUses,
+    performLivenessAnalysis,
+    getLiveAtInstruction,
   )
 where
 
@@ -144,7 +146,7 @@ performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn ini
                     -- IN[B] = USE[B] ∪ (OUT[B] - DEF[B]) for non-entry blocks
                     isEntryBlock = null (Map.findWithDefault [] blockId predecessors)
                     newIn =
-                      if isEntryBlock 
+                      if isEntryBlock
                         then Set.empty
                         else
                           used `Set.union` (newOut `Set.difference` defined)
@@ -168,6 +170,13 @@ performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn ini
                         -- ReAssigne newly defined temps from used set, add new uses
                         newUsed = (used `Set.difference` instDefs) `Set.union` instUses
                         newDefined = defined `Set.union` instDefs
+
+getLiveAtInstruction :: LivenessInfo -> BlockId -> Inst -> Set Temp
+getLiveAtInstruction liveness blockId inst =
+  let liveOut = Map.findWithDefault Set.empty blockId (livenessOut liveness)
+      defined = getDefinedTemps inst
+      used = getUsedTemps inst
+   in (liveOut `Set.difference` defined) `Set.union` used
 
 analyzeFunctionLiveness :: Fun -> LivenessInfo
 analyzeFunctionLiveness Fun {funCfg} = performLivenessAnalysis funCfg

@@ -5,7 +5,9 @@ module Main where
 import Ast.Parse qualified
 import Ast.Semant qualified
 import Ast.Types qualified
+import Data.Map qualified as Map
 import Mir.Allocation qualified as Allocation
+import Mir.Interference qualified as Interference
 import Mir.Liveness qualified as Liveness
 import Mir.Translate qualified
 import Mir.Types qualified
@@ -18,6 +20,7 @@ data Command
   | ShowSemant String
   | ShowMir String
   | ShowMirLive String
+  | ShowMirInterference String
   | ShowMirColor String
   | MirToFile String String
   | ShowX86 String
@@ -47,12 +50,14 @@ mirParser = do
   file <- strArgument (metavar "FILE" <> help "Input file")
   liveFlag <- switch (long "live" <> help "Show liveness analysis")
   colorFlag <- switch (long "color" <> help "Show register allocation")
+  interferenceFlag <- switch (long "interference" <> help "Show interference graph")
   outFile <- optional (strOption (short 'o' <> metavar "OUTFILE" <> help "Output file"))
 
-  pure $ case (liveFlag, colorFlag, outFile) of
-    (True, _, _) -> ShowMirLive file
-    (_, True, _) -> ShowMirColor file
-    (_, _, Just out) -> MirToFile file out
+  pure $ case (liveFlag, colorFlag, outFile, interferenceFlag) of
+    (True, _, _, _) -> ShowMirLive file
+    (_, True, _, _) -> ShowMirColor file
+    (_, _, Just out, _) -> MirToFile file out
+    (_, _, _, True) -> ShowMirInterference file
     _ -> ShowMir file
 
 x86Parser :: Parser Command
@@ -138,6 +143,15 @@ executeCommand cmd = case cmd of
     processedAst <- processToMir fileName
     case processedAst of
       Right mirProgram -> writeFile outFile (show mirProgram)
+      Left err -> error err
+  ShowMirInterference fileName -> do
+    processedAst <- processToMir fileName
+    case processedAst of
+      Right mirProgram -> do
+        print mirProgram
+        let interferenceGraph = Interference.programInterferenceGraph mirProgram
+        putStrLn "Interference Graph:"
+        mapM_ print (Map.toList interferenceGraph)
       Left err -> error err
   ShowX86 fileName -> do
     processedAst <- processToMir fileName
