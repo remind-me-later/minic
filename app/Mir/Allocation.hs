@@ -13,18 +13,27 @@ import Mir.Types
 -- Register assignment: temp -> register
 type RegisterAssignment = Map Temp Register
 
+-- Spill handling - convert temps to memory locations
+newtype SpillLocation = StackSlot Int deriving (Eq, Ord, Show)
+
+data AllocationResult = AllocationResult
+  { allocRegisters :: RegisterAssignment,
+    allocSpilled :: Map Temp SpillLocation
+  }
+  deriving (Show)
+
 -- Simple greedy graph coloring
 colorGraph :: InterferenceGraph -> Maybe RegisterAssignment
-colorGraph graph =
-  let temps = Map.keys graph
-      sortedTemps = sortByDegree graph temps
-   in colorTemps graph sortedTemps Map.empty
+colorGraph graph = colorTemps graph sortedTemps Map.empty
+  where
+    temps = Map.keys graph
+    sortedTemps = sortByDegree graph temps
 
 -- Sort temporaries by interference degree (most constrained first)
 sortByDegree :: InterferenceGraph -> [Temp] -> [Temp]
-sortByDegree graph temps =
-  let getDegree t = Set.size $ Map.findWithDefault Set.empty t graph
-   in sortOn (negate . getDegree) temps
+sortByDegree graph = sortOn (negate . getDegree)
+  where
+    getDegree t = Set.size $ Map.findWithDefault Set.empty t graph
 
 -- Color temporaries one by one
 colorTemps :: InterferenceGraph -> [Temp] -> RegisterAssignment -> Maybe RegisterAssignment
@@ -37,24 +46,16 @@ colorTemps graph (temp : rest) assignment =
 -- Find an available register for a temporary
 findAvailableRegister :: InterferenceGraph -> Temp -> RegisterAssignment -> Maybe Register
 findAvailableRegister graph temp assignment =
-  let interferers = Map.findWithDefault Set.empty temp graph
-      usedRegs =
-        Set.fromList
-          [ reg | t <- Set.toList interferers, Just reg <- [Map.lookup t assignment]
-          ]
-      availableRegs = filter (`Set.notMember` usedRegs) availableRegisters
-   in case availableRegs of
-        (reg : _) -> Just reg
-        [] -> Nothing
-
--- Spill handling - convert temps to memory locations
-newtype SpillLocation = StackSlot Int deriving (Eq, Ord, Show)
-
-data AllocationResult = AllocationResult
-  { allocRegisters :: RegisterAssignment,
-    allocSpilled :: Map Temp SpillLocation
-  }
-  deriving (Show)
+  case availableRegs of
+    (reg : _) -> Just reg
+    [] -> Nothing
+  where
+    interferers = Map.findWithDefault Set.empty temp graph
+    usedRegs =
+      Set.fromList
+        [ reg | t <- Set.toList interferers, Just reg <- [Map.lookup t assignment]
+        ]
+    availableRegs = filter (`Set.notMember` usedRegs) availableRegisters
 
 -- Allocate with spilling support
 allocateRegisters :: CFG -> LivenessInfo -> AllocationResult
@@ -137,7 +138,6 @@ transformInst allocation inst = case inst of
       { paramOperand = transformOperand allocation paramOperand
       }
 
--- And for bare Temp fields, you might want a separate function
 transformTemp :: AllocationResult -> Temp -> Temp
 transformTemp allocation temp =
   case transformOperand allocation (Temp temp) of
@@ -157,13 +157,12 @@ transformTerminator _allocation terminator = case terminator of
         condFalseBlockId = condFalseBlockId
       }
 
--- Transform operands based on allocation
 transformOperand :: AllocationResult -> Operand -> Operand
 transformOperand allocation (Temp t) =
   case Map.lookup t (allocRegisters allocation) of
-    Just reg -> RegOperand reg -- Need to add this to Operand type
+    Just reg -> RegOperand reg
     Nothing -> case Map.lookup t (allocSpilled allocation) of
-      Just (StackSlot slot) -> StackOperand slot -- Need to add this too
+      Just (StackSlot slot) -> StackOperand slot
       Nothing -> error $ "Unallocated temporary: " ++ show t
 transformOperand _ op = op
 

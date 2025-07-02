@@ -13,8 +13,7 @@ import Mir.Allocation
     allocateProgram,
   )
 import Mir.Liveness
-  ( LiveSet,
-    LivenessInfo (..),
+  ( LivenessInfo (..),
     analyzeFunctionLiveness,
     analyzeProgramLiveness,
   )
