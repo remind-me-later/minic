@@ -240,10 +240,10 @@ translateTerminator terminator
       mapM_ emitAsmInst functionEpilogue
   | Mir.Jump {Mir.jumpTarget} <- terminator = emitAsmInst $ Jmp {jmpLabel = jumpTarget}
   | Mir.CondJump {Mir.condTrueBlockId, Mir.condFalseBlockId} <- terminator = do
-      jmpInstruction <-
-        gets lastJmpCond >>= \case
-          Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBlockId}
-          Nothing -> error "No flag changing operation before conditional jump"
+      lastJmpCond <- gets lastJmpCond
+      jmpInstruction <- case lastJmpCond of
+        Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBlockId}
+        Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
       emitAsmInst $ Jmp {jmpLabel = condFalseBlockId}
 

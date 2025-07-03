@@ -168,7 +168,8 @@ executeCommand cmd = case cmd of
     processedAst <- processToMir fileName
     case processedAst of
       Right mirProgram -> do
-        let allocationResult = Allocation.allocateProgram mirProgram
+        let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
+        let allocationResult = Allocation.allocateProgram optMirProgram
         let x86Program = X86.Translate.translateProgram allocationResult
         putStrLn x86Program
       Left err -> error err
