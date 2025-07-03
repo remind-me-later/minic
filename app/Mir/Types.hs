@@ -83,6 +83,7 @@ instance Show BasicBlock where
 data CFG = CFG
   { cfgEntryBlockId :: BlockId,
     cfgExitBlocks :: Set BlockId,
+    -- FIXME: this list should be non empty
     cfgBlocks :: [BasicBlock]
   }
   deriving (Eq)

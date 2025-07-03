@@ -3,7 +3,7 @@
 module Ast.Parse (program) where
 
 import Ast.Types
-import Control.Applicative (Alternative (many, (<|>)), Applicative (liftA2), optional)
+import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 import TypeSystem
