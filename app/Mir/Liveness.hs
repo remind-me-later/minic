@@ -62,7 +62,7 @@ getDefinedTemps inst = case inst of
   _ -> Set.empty
 
 getOperandTemps :: Operand -> Set Temp
-getOperandTemps (Temp t) = Set.singleton t
+getOperandTemps (TempOperand t) = Set.singleton t
 getOperandTemps _ = Set.empty
 
 getTerminatorUses :: Terminator -> Set Temp

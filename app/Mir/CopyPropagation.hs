@@ -15,30 +15,30 @@ type CopyMap = Map Temp Operand
 
 -- Check if an assignment is redundant (dst = dst)
 isRedundantAssignment :: Inst -> Bool
-isRedundantAssignment Assign {instDst = Temp dst, instSrc = Temp src} = dst == src
+isRedundantAssignment Assign {instDst = TempOperand dst, instSrc = TempOperand src} = dst == src
 isRedundantAssignment _ = False
 
 -- Check if an assignment is a simple copy (temp = temp or temp = constant)
 isCopyAssignment :: Inst -> Maybe (Temp, Operand)
-isCopyAssignment Assign {instDst = Temp dst, instSrc = src@(Temp _)} = Just (dst, src)
-isCopyAssignment Assign {instDst = Temp dst, instSrc = src@(ConstInt _)} = Just (dst, src)
-isCopyAssignment Assign {instDst = Temp dst, instSrc = src@(ConstChar _)} = Just (dst, src)
+isCopyAssignment Assign {instDst = TempOperand dst, instSrc = src@(TempOperand _)} = Just (dst, src)
+isCopyAssignment Assign {instDst = TempOperand dst, instSrc = src@(ConstInt _)} = Just (dst, src)
+isCopyAssignment Assign {instDst = TempOperand dst, instSrc = src@(ConstChar _)} = Just (dst, src)
 isCopyAssignment _ = Nothing
 
 -- Get all temporaries that an instruction defines
 getDefinedTemp :: Inst -> Maybe Temp
-getDefinedTemp Assign {instDst = Temp t} = Just t
-getDefinedTemp UnaryOp {instDst = Temp t} = Just t
-getDefinedTemp BinOp {instDst = Temp t} = Just t
-getDefinedTemp Call {callRet = Just (Temp t)} = Just t
+getDefinedTemp Assign {instDst = TempOperand t} = Just t
+getDefinedTemp UnaryOp {instDst = TempOperand t} = Just t
+getDefinedTemp BinOp {instDst = TempOperand t} = Just t
+getDefinedTemp Call {callRet = Just (TempOperand t)} = Just t
 getDefinedTemp _ = Nothing
 
 -- Replace temporary uses with their copy source if beneficial
 substituteOperand :: CopyMap -> Operand -> Operand
-substituteOperand copyMap (Temp t) =
+substituteOperand copyMap (TempOperand t) =
   case Map.lookup t copyMap of
     Just replacement -> replacement
-    Nothing -> Temp t
+    Nothing -> TempOperand t
 substituteOperand _ op = op
 
 -- Apply copy propagation to an instruction

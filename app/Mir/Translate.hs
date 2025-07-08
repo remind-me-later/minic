@@ -30,7 +30,7 @@ allocateLocalToTmp :: Id -> State TranslationState Temp
 allocateLocalToTmp varId = do
   currentTemp <- gets tmp
   modify' $ \s@TranslationState {varToTemp} ->
-    s {varToTemp = Map.insert varId currentTemp varToTemp, tmp = currentTemp + 1}
+    s {varToTemp = Map.insert varId currentTemp varToTemp, tmp = incTempLabel currentTemp}
   return currentTemp
 
 -- Allocate stack slot for arguments (positive offsets from RBP)
@@ -68,7 +68,7 @@ idToStackOperand varId = do
   -- check first if the variable is allocated on a temporary register
   maybeTemp <- gets (Map.lookup varId . varToTemp)
   case maybeTemp of
-    Just temp -> return $ Temp temp
+    Just temp -> return $ TempOperand temp
     Nothing -> do
       -- If not, check if it's allocated on the stack
       maybeOffset <- getStackOffset varId
@@ -77,7 +77,7 @@ idToStackOperand varId = do
         Nothing -> error $ "Variable " ++ varId ++ " not allocated on stack or temp register"
 
 incTmp :: TranslationState -> TranslationState
-incTmp ts@TranslationState {tmp} = ts {tmp = tmp + 1}
+incTmp ts@TranslationState {tmp} = ts {tmp = incTempLabel tmp}
 
 incBlockId :: TranslationState -> TranslationState
 incBlockId ts@TranslationState {blockId} = ts {blockId = blockId + 1}
@@ -130,58 +130,58 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
   | Ast.IdExp {idName} <- exp = do
       t <- gets tmp
       stackOp <- idToStackOperand idName
-      modify' $ addInstsToBlock [Assign {instDst = Temp t, instSrc = stackOp}]
+      modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
   | Ast.NumberExp {numberValue} <- exp = do
       t <- gets tmp
-      modify' $ addInstsToBlock [Assign {instDst = Temp t, instSrc = ConstInt numberValue}]
+      modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstInt numberValue}]
   | Ast.CharExp {charValue} <- exp = do
       t <- gets tmp
-      modify' $ addInstsToBlock [Assign {instDst = Temp t, instSrc = ConstChar charValue}]
+      modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstChar charValue}]
   | Ast.BinExp {binLeft = binLeft@Exp {expInner = binLeftInner}, binOp, binRight = binRight@Exp {expInner = binRightInner}} <- exp = do
       case (binLeftInner, binRightInner) of
         (Ast.NumberExp {numberValue = l}, Ast.NumberExp {numberValue = r}) -> do
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = ConstInt l, instRight = ConstInt r}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = ConstInt r}]
         (Ast.NumberExp {numberValue = l}, _) -> do
           transExp binRight
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = ConstInt l, instRight = Temp t}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = TempOperand t}]
         (_, Ast.NumberExp {numberValue = r}) -> do
           transExp binLeft
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = Temp t, instRight = ConstInt r}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstInt r}]
         (Ast.CharExp {charValue = l}, Ast.CharExp {charValue = r}) -> do
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = ConstChar l, instRight = ConstChar r}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = ConstChar r}]
         (Ast.CharExp {charValue = l}, _) -> do
           transExp binRight
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = ConstChar l, instRight = Temp t}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = TempOperand t}]
         (_, Ast.CharExp {charValue = r}) -> do
           transExp binLeft
           t <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp t, instBinop = binOp, instLeft = Temp t, instRight = ConstChar r}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstChar r}]
         _ -> do
           transExp binLeft
           lt <- gets tmp
           modify' incTmp
           transExp binRight
           rt <- gets tmp
-          modify' $ addInstsToBlock [BinOp {instDst = Temp rt, instBinop = binOp, instLeft = Temp lt, instRight = Temp rt}]
+          modify' $ addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
   | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- exp = do
       t <- gets tmp
-      modify' $ addInstsToBlock [UnaryOp {instDst = Temp t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
+      modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
   | Ast.UnaryExp {unaryOp, unaryExp} <- exp = do
       transExp unaryExp
       t <- gets tmp
-      modify' $ addInstsToBlock [UnaryOp {instDst = Temp t, instUnop = unaryOp, instSrc = Temp t}]
+      modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
   | Ast.Call {callId, callArgs} <- exp = do
       mapM_
         ( \arg -> do
             transExp arg
             t <- gets tmp
             modify' incTmp
-            modify' $ addInstsToBlock [Param {paramOperand = Temp t}]
+            modify' $ addInstsToBlock [Param {paramOperand = TempOperand t}]
         )
         callArgs
       case annot of
@@ -189,18 +189,18 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
           modify' $ addInstsToBlock [Mir.Types.Call {callRet = Nothing, callFunId = callId, callArgCount = length callArgs}]
         _ -> do
           t <- gets tmp
-          modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just (Temp t), callFunId = callId, callArgCount = length callArgs}]
+          modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just (TempOperand t), callFunId = callId, callArgCount = length callArgs}]
   | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- exp = do
       -- Accessing an array with a constant index
       let idx = ConstInt numberValue
       stackOp <- arrayAccess arrId idx
       t <- gets tmp
-      modify' $ addInstsToBlock [Assign {instDst = Temp t, instSrc = stackOp}]
+      modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
   | Ast.ArrAccess {arrId, arrIndex} <- exp = do
       transExp arrIndex
       t <- gets tmp
-      stackOp <- arrayAccess arrId (Temp t)
-      modify' $ addInstsToBlock [Assign {instDst = Temp t, instSrc = stackOp}]
+      stackOp <- arrayAccess arrId (TempOperand t)
+      modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do
@@ -211,7 +211,7 @@ arrayAccess arrId (ConstInt idx) = do
       let elemSize = sizeOf arrTyElemTy
       return $ StackOperand (offset + idx * elemSize)
     _ -> error $ "Array access error for: " ++ arrId
-arrayAccess arrId (Temp idxTemp) = do
+arrayAccess arrId (TempOperand idxTemp) = do
   symb <- gets (lookup arrId)
   baseOffset <- getStackOffset arrId
   case (symb, baseOffset) of
@@ -222,10 +222,10 @@ arrayAccess arrId (Temp idxTemp) = do
       modify' incTmp
       modify' $
         addInstsToBlock
-          [ BinOp {instDst = Temp t, instBinop = TypeSystem.Mul, instLeft = Temp idxTemp, instRight = ConstInt elemSize},
-            BinOp {instDst = Temp t, instBinop = TypeSystem.Add, instLeft = Temp t, instRight = ConstInt offset}
+          [ BinOp {instDst = TempOperand t, instBinop = TypeSystem.Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize},
+            BinOp {instDst = TempOperand t, instBinop = TypeSystem.Add, instLeft = TempOperand t, instRight = ConstInt offset}
           ]
-      return $ Temp t -- This temp holds the computed stack offset
+      return $ TempOperand t -- This temp holds the computed stack offset
     _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId _ = do
   -- This case should not happen, as we expect either ConstInt or Temp for index
@@ -245,19 +245,19 @@ transStmt stmt
           t <- gets tmp -- Get the temp containing the expression result
           -- Treat variable as temp
           dstt <- allocateLocalToTmp varDefId
-          modify' $ addInstsToBlock [Assign {instDst = Temp dstt, instSrc = Temp t}]
+          modify' $ addInstsToBlock [Assign {instDst = TempOperand dstt, instSrc = TempOperand t}]
         _ -> do
           -- Allocate on stack
           _ <- allocateLocalSlot varDefId varDefTy
           transExp letExp
           t <- gets tmp
           stackOp <- idToStackOperand varDefId
-          modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = Temp t}])
+          modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}])
   | Ast.AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- gets tmp
       stackOp <- idToStackOperand assignId
-      modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = Temp t}])
+      modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}])
   | Ast.LetArrStmt {letArrVarDef = Ast.VarDef {varDefId}, letArrElems} <- stmt = do
       -- Store all the elements in the initializer in the array
       -- SInce the array is allocated on the stack, we can use the temporary
@@ -268,7 +268,7 @@ transStmt stmt
             dstOp <- arrayAccess varDefId (ConstInt idx)
             transExp elem
             tElem <- gets tmp
-            modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = Temp tElem}])
+            modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tElem}])
 
             return (idx + 1)
         )
@@ -280,22 +280,22 @@ transStmt stmt
       dstOp <- arrayAccess assignArrId idx
       transExp assignArrExp
       tExp <- gets tmp
-      modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = Temp tExp}])
+      modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}])
   | Ast.AssignArrStmt {assignArrId, assignArrIndex, assignArrExp} <- stmt = do
       transExp assignArrIndex
       tIndex <- gets tmp
       modify' incTmp
 
-      dstOp <- arrayAccess assignArrId (Temp tIndex)
+      dstOp <- arrayAccess assignArrId (TempOperand tIndex)
       transExp assignArrExp
       tExp <- gets tmp
-      modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = Temp tExp}])
+      modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}])
   | Ast.ReturnStmt {returnExp} <- stmt = do
       case returnExp of
         Just exp -> do
           transExp exp
           t <- gets tmp
-          modify' $ terminateBlock (Return {retOperand = Just (Temp t)})
+          modify' $ terminateBlock (Return {retOperand = Just (TempOperand t)})
         Nothing -> modify' $ terminateBlock (Return {retOperand = Nothing})
   | Ast.IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
       l <- gets blockId
@@ -313,7 +313,7 @@ transStmt stmt
           let endBlockId = "IL" ++ show l
 
           t <- gets tmp
-          modify' $ terminateBlock CondJump {condOperand = Temp t, condTrueBlockId = thenBlockId, condFalseBlockId = elseBlockId}
+          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = thenBlockId, condFalseBlockId = elseBlockId}
           _ <- transBlock thenBlockId ifBody
           modify' $ terminateBlock Jump {jumpTarget = endBlockId}
           _ <- transBlock elseBlockId elseBody
@@ -325,7 +325,7 @@ transStmt stmt
           let endBlockId = "if_end_" ++ show l
 
           t <- gets tmp
-          modify' $ terminateBlock CondJump {condOperand = Temp t, condTrueBlockId = thenBlockId, condFalseBlockId = endBlockId}
+          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = thenBlockId, condFalseBlockId = endBlockId}
           _ <- transBlock thenBlockId ifBody
           modify' $ terminateBlock Jump {jumpTarget = endBlockId}
           modify' (setCurBlockId endBlockId)
@@ -346,7 +346,7 @@ transStmt stmt
       modify' (setCurBlockId condBlockId)
       transExp whileCond
       t <- gets tmp
-      modify' $ terminateBlock CondJump {condOperand = Temp t, condTrueBlockId = loopBlockId, condFalseBlockId = endBlockId}
+      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = loopBlockId, condFalseBlockId = endBlockId}
 
       _ <- transBlock loopBlockId whileBody
       modify' $ terminateBlock Jump {jumpTarget = condBlockId}
@@ -369,7 +369,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
   -- Locals start at RBP - 8 (first local below RBP)
   modify' $ \s ->
     s
-      { tmp = 0,
+      { tmp = Temp {tempLabel = 0},
         stackOffsets = Map.empty,
         varToTemp = Map.empty,
         currentArgOffset = 16, -- Start after saved RBP + return address
@@ -427,7 +427,7 @@ transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFun
   let externFuns' = transExternFun <$> programExternFuns
   let initialState =
         TranslationState
-          { tmp = 0,
+          { tmp = Temp {tempLabel = 0},
             blockId = 0,
             blocks = [],
             envs = Env.pushEnv programAnnot (Env.emptyEnvStack "global"),

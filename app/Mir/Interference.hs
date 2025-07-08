@@ -22,7 +22,7 @@ instance Show InterferenceGraph where
             ++ show t
             ++ " interferes with: "
             ++ unwords (map (("t" ++) . show) (Set.toList interferers))
-          | (t, interferers) <- Map.toList graph
+        | (t, interferers) <- Map.toList graph
         ]
 
 -- Build interference graph from liveness info
@@ -102,5 +102,5 @@ programInterferenceGraph :: Program -> Map TypeSystem.Id InterferenceGraph
 programInterferenceGraph Program {programFuns, programMainFun} =
   Map.fromList
     [ (funId fun, functionInterferenceGraph fun)
-      | fun <- programFuns ++ maybeToList programMainFun
+    | fun <- programFuns ++ maybeToList programMainFun
     ]

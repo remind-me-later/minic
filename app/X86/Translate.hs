@@ -89,7 +89,7 @@ translateOperand (Mir.ConstInt n) = Imm n
 translateOperand (Mir.ConstChar c) = Imm (fromIntegral (fromEnum c))
 translateOperand (Mir.RegOperand reg) = Reg (mirRegisterToX86 reg)
 translateOperand (Mir.StackOperand offset) = Mem {memBase = Rbp, memDisp = offset, memIndexScale = Nothing}
-translateOperand (Mir.Temp _) = error "Temporary variables should be handled by register allocation"
+translateOperand (Mir.TempOperand _) = error "Temporary variables should be handled by register allocation"
 
 calculateFrameSize :: Mir.CFG -> Int
 calculateFrameSize cfg =
@@ -255,12 +255,14 @@ translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBlockId, Mir.bloc
   unless isMain $ translateTerminator blockTerminator
 
 translateCfg :: Bool -> Mir.CFG -> State TranslationState ()
-translateCfg isMain Mir.CFG {Mir.cfgBlocks} = do
+translateCfg _ Mir.CFG {Mir.cfgBlocks = []} = 
+  error "Empty CFG - cannot translate"
+translateCfg isMain Mir.CFG {Mir.cfgBlocks = entryBlock:rest} = do
   -- FIXME: should not rely on basic block order
-  let entryBlock = head cfgBlocks
   translateBasicBlock True isMain entryBlock
-  forM_ (tail cfgBlocks) $ \block ->
+  forM_ rest $ \block ->
     translateBasicBlock False isMain block
+
 
 translateMainFun :: Mir.Fun -> State TranslationState ()
 translateMainFun Mir.Fun {Mir.funCfg} = do

@@ -6,7 +6,15 @@ import Data.Set
 import Env qualified
 import TypeSystem
 
-type Temp = Int
+newtype Temp
+  = Temp {tempLabel :: Int}
+  deriving (Eq, Ord)
+
+incTempLabel :: Temp -> Temp
+incTempLabel (Temp label) = Temp (label + 1)
+
+instance Show Temp where
+  show (Temp label) = "t" ++ show label
 
 type BlockId = String
 
@@ -19,7 +27,7 @@ availableRegisters = [R1 .. R8]
 data Operand
   = ConstInt Int
   | ConstChar Char
-  | Temp Temp
+  | TempOperand Temp
   | RegOperand Register
   | StackOperand Int
   deriving (Eq)
@@ -27,7 +35,7 @@ data Operand
 instance Show Operand where
   show (ConstInt n) = "const " ++ show n
   show (ConstChar c) = "const " ++ show c
-  show (Temp t) = "t" ++ show t
+  show (TempOperand t) = show t
   show (RegOperand r) = "reg " ++ show r
   show (StackOperand n) = "stack " ++ show n
 
@@ -63,8 +71,6 @@ instance Show Inst where
 
 -- A Basic Block is a sequence of instructions that starts with a blockId
 -- and ends with a control flow instruction (Jump, CondJump, Return).
--- For simplicity here, we'll just list instructions and assume the last one is control flow.
--- A more rigorous CFG would explicitly link blocks.
 data BasicBlock = BasicBlock
   { cfgBlockId :: BlockId,
     blockInsts :: [Inst],
@@ -83,7 +89,7 @@ instance Show BasicBlock where
 data CFG = CFG
   { cfgEntryBlockId :: BlockId,
     cfgExitBlocks :: Set BlockId,
-    -- FIXME: this list should be non empty
+    -- TODO: this list should be non empty
     cfgBlocks :: [BasicBlock]
   }
   deriving (Eq)

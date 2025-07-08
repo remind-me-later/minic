@@ -141,8 +141,8 @@ transformInst allocation inst = case inst of
 
 transformTemp :: AllocationResult -> Temp -> Temp
 transformTemp allocation temp =
-  case transformOperand allocation (Temp temp) of
-    Temp t -> t -- If it stayed a temp (spilled)
+  case transformOperand allocation (TempOperand temp) of
+    TempOperand t -> t -- If it stayed a temp (spilled)
     RegOperand _ -> error "Cannot convert register to temp directly"
     StackOperand _ -> error "Cannot convert stack slot to temp directly"
     _ -> error "Unexpected operand type"
@@ -159,7 +159,7 @@ transformTerminator _allocation terminator = case terminator of
       }
 
 transformOperand :: AllocationResult -> Operand -> Operand
-transformOperand allocation (Temp t) =
+transformOperand allocation (TempOperand t) =
   case Map.lookup t (allocRegisters allocation) of
     Just reg -> RegOperand reg
     Nothing -> case Map.lookup t (allocSpilled allocation) of
