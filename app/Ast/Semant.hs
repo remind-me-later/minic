@@ -309,6 +309,16 @@ typeStmt stmt
 
       whileBody <- typeBlock whileBody
       return WhileStmt {whileCond, whileBody}
+  | ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
+      forInit <- typeStmt forInit
+      forCond@Exp {expAnnot} <- typeExp forCond
+      forUpdate <- typeStmt forUpdate
+      forBody <- typeBlock forBody
+
+      when (expAnnot /= BoolTy) $
+        modify' (addError ("Condition in for statement must be of type BoolTy, got " ++ show expAnnot))
+
+      return ForStmt {forInit, forCond, forUpdate, forBody}
 
 typeBlock :: RawBlock -> State TypingState TypedBlock
 typeBlock Block {blockStmts} = do

@@ -34,6 +34,9 @@ ifkw = keyword "if"
 whilekw :: PC.Parser String
 whilekw = keyword "while"
 
+forkw :: PC.Parser String
+forkw = keyword "for"
+
 elsekw :: PC.Parser String
 elsekw = keyword "else"
 
@@ -181,58 +184,67 @@ vardef = do
   varDefId <- id
   return VarDef {varDefId, varDefTy}
 
+letstmt :: PC.Parser RawStmt
+letstmt = do
+  letVarDef <- vardef
+  _ <- symbol "="
+  letExp <- exp
+  return $ LetStmt {letVarDef, letExp}
+
+letarrstmt :: PC.Parser RawStmt
+letarrstmt = do
+  letArrVarDef <- vardef
+  letArrSize <- brackets num
+  _ <- symbol "="
+  letArrElems <- braces (commaSep exp)
+  return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems}
+
+assignstmt :: PC.Parser RawStmt
+assignstmt = do
+  assignId <- id
+  _ <- symbol "="
+  assignExp <- exp
+  return $ AssignStmt {assignId, assignExp}
+
+assignarrstmt :: PC.Parser RawStmt
+assignarrstmt = do
+  assignArrId <- id
+  assignArrIndex <- brackets exp
+  _ <- symbol "="
+  assignArrExp <- exp
+  return $ AssignArrStmt {assignArrId, assignArrIndex, assignArrExp}
+
+retstmt :: PC.Parser RawStmt
+retstmt = do
+  _ <- returnkw
+  returnExp <- optional exp
+  return $ ReturnStmt {returnExp}
+
+expstmt :: PC.Parser RawStmt
+expstmt = do
+  stmtExp <- exp
+  return ExpStmt {stmtExp}
+
+semicolonStmt :: PC.Parser RawStmt
+semicolonStmt = do
+  stmt <-
+    PC.try letstmt
+      <|> PC.try letarrstmt
+      <|> PC.try retstmt
+      <|> PC.try assignstmt
+      <|> PC.try assignarrstmt
+      <|> expstmt
+  _ <- symbol ";"
+  return stmt
+
 stmt :: PC.Parser RawStmt
 stmt =
-  PC.try letstmt
-    <|> PC.try letarrstmt
-    <|> PC.try retstmt
-    <|> PC.try ifstmt
+  PC.try ifstmt
     <|> PC.try whilestmt
-    <|> PC.try assignstmt
-    <|> PC.try assignarrstmt
+    <|> PC.try forstmt
+    <|> PC.try semicolonStmt
     <|> expstmt
   where
-    letstmt = do
-      letVarDef <- vardef
-      _ <- symbol "="
-      letExp <- exp
-      _ <- symbol ";"
-      return $ LetStmt {letVarDef, letExp}
-
-    letarrstmt = do
-      letArrVarDef <- vardef
-      letArrSize <- brackets num
-      _ <- symbol "="
-      letArrElems <- braces (commaSep exp)
-      _ <- symbol ";"
-      return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems}
-
-    assignstmt = do
-      assignId <- id
-      _ <- symbol "="
-      assignExp <- exp
-      _ <- symbol ";"
-      return $ AssignStmt {assignId, assignExp}
-
-    assignarrstmt = do
-      assignArrId <- id
-      assignArrIndex <- brackets exp
-      _ <- symbol "="
-      assignArrExp <- exp
-      _ <- symbol ";"
-      return $ AssignArrStmt {assignArrId, assignArrIndex, assignArrExp}
-
-    retstmt = do
-      _ <- returnkw
-      returnExp <- optional exp
-      _ <- symbol ";"
-      return $ ReturnStmt {returnExp}
-
-    expstmt = do
-      stmtExp <- exp
-      _ <- symbol ";"
-      return ExpStmt {stmtExp}
-
     ifstmt = do
       _ <- ifkw
       ifCond <- parens exp
@@ -245,6 +257,18 @@ stmt =
       whileCond <- parens exp
       whileBody <- block
       return WhileStmt {whileCond, whileBody}
+
+    forstmt = do
+      _ <- forkw
+      _ <- symbol "("
+      forInit <- assignstmt
+      _ <- symbol ";"
+      ExpStmt {stmtExp = forCond} <- expstmt
+      _ <- symbol ";"
+      forUpdate <- assignstmt
+      _ <- symbol ")"
+      forBody <- block
+      return ForStmt {forInit, forCond, forUpdate, forBody}
 
 block :: PC.Parser RawBlock
 block = do

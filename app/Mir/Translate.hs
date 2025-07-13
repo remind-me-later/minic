@@ -352,6 +352,33 @@ transStmt stmt
       modify' $ terminateBlock Jump {jumpTarget = condBlockId}
 
       modify' (setCurBlockId endBlockId)
+  | Ast.ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
+      l <- gets blockId
+      modify' incBlockId
+      let condBlockId = "FL" ++ show l
+      l <- gets blockId
+      modify' incBlockId
+      let loopBlockId = "FL" ++ show l
+      l <- gets blockId
+      modify' incBlockId
+      let endBlockId = "FL" ++ show l
+      modify' incBlockId
+
+      -- Add the initial statement to the block
+      _ <- transStmt forInit
+
+      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
+      modify' (setCurBlockId condBlockId)
+      transExp forCond
+      t <- gets tmp
+      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = loopBlockId, condFalseBlockId = endBlockId}
+
+      _ <- transBlock loopBlockId forBody
+
+      _ <- transStmt forUpdate
+      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
+
+      modify' (setCurBlockId endBlockId)
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
 transBlock blockId Ast.Block {blockAnnot = scope, blockStmts} = do

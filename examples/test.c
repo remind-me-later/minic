@@ -15,9 +15,9 @@ void print_int(int n) {
 int fact(int n) {
     int result = 1;
     int i = 2;
-    while (i <= n) {
+
+    for (i = 2; i <= n; i = i + 1) {
         result = result * i;
-        i = i+1;    
     }
 
     return result;

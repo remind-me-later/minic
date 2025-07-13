@@ -108,16 +108,18 @@ fact:
 	movq $1, %r8
 	movq $2, %r9
 	movq $2, %r9
-	jmp WL3
-WL3:
+	movq $2, %r10
+	movq $2, %r9
+	jmp FL3
+FL3:
 	movq %r9, %r10
 	movq 16(%rbp), %r10
 	movq %r9, %rax
 	cmpq %r10, %rax
 	movq %rax, %r10
-	jle WL4
-	jmp WL5
-WL4:
+	jle FL4
+	jmp FL5
+FL4:
 	movq %r8, %r10
 	movq %r9, %r10
 	movq %r8, %rax
@@ -129,8 +131,8 @@ WL4:
 	addq $1, %rax
 	movq %rax, %r10
 	movq %r10, %r9
-	jmp WL3
-WL5:
+	jmp FL3
+FL5:
 	movq %r8, %r10
 	movq %r8, %rax
 	movq %rbp, %rsp

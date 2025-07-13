@@ -86,6 +86,12 @@ data Stmt ea ba
       { whileCond :: Exp ea,
         whileBody :: Block ea ba
       }
+  | ForStmt
+      { forInit :: Stmt ea ba,
+        forCond :: Exp ea,
+        forUpdate :: Stmt ea ba,
+        forBody :: Block ea ba
+      }
   deriving (Show, Eq)
 
 data Block ea ba = Block
