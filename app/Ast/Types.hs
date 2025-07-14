@@ -76,12 +76,14 @@ data Stmt ea ba
   = ExpStmt {stmtExp :: Exp ea}
   | LetStmt
       { letVarDef :: VarDef,
-        letExp :: Exp ea
+        letExp :: Exp ea,
+        letStorage :: Maybe StorageSpecifier
       }
   | LetArrStmt
       { letArrVarDef :: VarDef,
         letArrSize :: Int,
-        letArrElems :: [Exp ea]
+        letArrElems :: [Exp ea],
+        letArrStorage :: Maybe StorageSpecifier
       }
   | AssignStmt
       { assignId :: Id,

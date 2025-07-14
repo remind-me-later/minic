@@ -200,18 +200,20 @@ vardef = do
 
 letstmt :: PC.Parser RawStmt
 letstmt = do
+  storageSpec <- optional storageSpecifier
   letVarDef <- vardef
   _ <- symbol "="
   letExp <- expression
-  return $ LetStmt {letVarDef, letExp}
+  return $ LetStmt {letVarDef, letExp, letStorage = storageSpec}
 
 letarrstmt :: PC.Parser RawStmt
 letarrstmt = do
+  storageSpec <- optional storageSpecifier
   letArrVarDef <- vardef
   letArrSize <- brackets num
   _ <- symbol "="
   letArrElems <- braces (commaSep expression)
-  return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems}
+  return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems, letArrStorage = storageSpec}
 
 assignstmt :: PC.Parser RawStmt
 assignstmt = do
@@ -288,6 +290,12 @@ block :: PC.Parser RawBlock
 block = do
   blockStmts <- braces (many stmt)
   return $ Block {blockAnnot = (), blockStmts}
+
+storageSpecifier :: PC.Parser StorageSpecifier
+storageSpecifier =
+  PC.try (keyword "static" $> Static)
+    <|> PC.try (keyword "extern" $> Extern)
+    <|> keyword "auto" $> Auto
 
 fun :: PC.Parser RawFun
 fun = do

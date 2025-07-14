@@ -4,10 +4,14 @@ module TypeSystem
     sizeOf,
     BinOp (..),
     UnaryOp (..),
+    StorageSpecifier (..),
   )
 where
 
 type Id = String
+
+data StorageSpecifier = Auto | Static | Extern
+  deriving (Show, Eq)
 
 data Ty
   = IntTy

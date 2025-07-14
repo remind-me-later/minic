@@ -33,26 +33,26 @@ type FunctionId = String
 
 data SymbolStorage
   = Argument
-  | Local
-  | Global
+  | Auto
+  | Static
   deriving (Eq)
 
 instance Show SymbolStorage where
   show Argument = "Argument"
-  show Local = "Local"
-  show Global = "Global"
+  show Auto = "Auto"
+  show Static = "Static"
 
 data Symbol = Symbol
   { symbolId :: Id,
     symbolTy :: Ty,
-    symbolAlloc :: SymbolStorage,
+    symbolStorage :: SymbolStorage,
     addressTaken :: Bool
   }
   deriving (Eq)
 
 instance Show Symbol where
-  show Symbol {symbolTy, symbolAlloc} =
-    "Symbol { ty: " ++ show symbolTy ++ ", alloc: " ++ show symbolAlloc ++ " }"
+  show Symbol {symbolTy, symbolStorage} =
+    "Symbol { ty: " ++ show symbolTy ++ ", alloc: " ++ show symbolStorage ++ " }"
 
 data Environment = Env
   { envBlockId :: BlockId,
@@ -77,12 +77,13 @@ emptyEnv envBlockId parentBlockId = Env {envBlockId, envSymbols = Map.empty, par
 
 data SymbolTable = SymbolTable
   { blockEnvs :: Map.Map BlockId Environment,
-    nextBlockId :: BlockId
+    nextBlockId :: BlockId,
+    dataEnv :: Environment
   }
   deriving (Show, Eq)
 
 globalSymbolTable :: SymbolTable
-globalSymbolTable = SymbolTable {blockEnvs = Map.singleton 0 globalEnv, nextBlockId = 1}
+globalSymbolTable = SymbolTable {blockEnvs = Map.singleton 0 globalEnv, nextBlockId = 1, dataEnv = globalEnv}
 
 insertBlock :: Environment -> SymbolTable -> (BlockId, SymbolTable)
 insertBlock env st@SymbolTable {blockEnvs, nextBlockId} =
@@ -108,7 +109,7 @@ insertFunToEnv blockId funId funTy st@SymbolTable {blockEnvs} =
             Symbol
               { symbolId = funId,
                 symbolTy = funTy,
-                symbolAlloc = Global,
+                symbolStorage = Static,
                 addressTaken = False
               }
           newEnv = env {envSymbols = Map.insert funId newSymbol (envSymbols env)}
@@ -129,19 +130,35 @@ lookupSymbol identifier blockId st@SymbolTable {blockEnvs} =
 
 insertVar :: VarDef -> SymbolStorage -> BlockId -> SymbolTable -> SymbolTable
 insertVar varDef alloc blockId st@SymbolTable {blockEnvs} =
-  case Map.lookup blockId blockEnvs of
-    Just env ->
-      let newSymbol =
-            Symbol
-              { symbolId = varDefId varDef,
-                symbolTy = varDefTy varDef,
-                symbolAlloc = alloc,
-                addressTaken = False
-              }
-          newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
-          newBlockEnvs = Map.insert blockId newEnv blockEnvs
-       in st {blockEnvs = newBlockEnvs}
-    Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
+  case alloc of
+    Static -> case Map.lookup blockId blockEnvs of
+      Just env ->
+        let newSymbol =
+              Symbol
+                { symbolId = varDefId varDef,
+                  symbolTy = varDefTy varDef,
+                  symbolStorage = alloc,
+                  addressTaken = False
+                }
+            newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
+            newBlockEnvs = Map.insert blockId newEnv blockEnvs
+            newDataEnvMap = Map.insert (varDefId varDef) newSymbol (envSymbols (dataEnv st))
+            newDataEnv = (dataEnv st) {envSymbols = newDataEnvMap}
+         in st {blockEnvs = newBlockEnvs, dataEnv = newDataEnv}
+      Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
+    _ -> case Map.lookup blockId blockEnvs of
+      Just env ->
+        let newSymbol =
+              Symbol
+                { symbolId = varDefId varDef,
+                  symbolTy = varDefTy varDef,
+                  symbolStorage = alloc,
+                  addressTaken = False
+                }
+            newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
+            newBlockEnvs = Map.insert blockId newEnv blockEnvs
+         in st {blockEnvs = newBlockEnvs}
+      Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
 
 insertArg :: VarDef -> BlockId -> SymbolTable -> SymbolTable
 insertArg varDef blockId st@SymbolTable {blockEnvs} =

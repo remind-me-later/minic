@@ -43,6 +43,7 @@ data Operand
   | TempOperand Temp
   | RegOperand Register
   | StackOperand Int
+  | DataOperand Int -- Offset for initialized static data (in data section)
   deriving (Eq)
 
 instance Show Operand where
@@ -51,6 +52,7 @@ instance Show Operand where
   show (TempOperand t) = show t
   show (RegOperand r) = "reg " ++ show r
   show (StackOperand n) = "stack " ++ show n
+  show (DataOperand n) = "data " ++ show n
 
 data Terminator
   = Return {retOperand :: Maybe Operand}
