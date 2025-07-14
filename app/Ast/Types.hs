@@ -51,6 +51,9 @@ data ExpInner ea
       { arrId :: Id,
         arrIndex :: Exp ea
       }
+  | TakeAddress
+      { takeAddressId :: Id
+      }
   deriving (Eq)
 
 instance (Show ea) => Show (ExpInner ea) where
@@ -61,6 +64,7 @@ instance (Show ea) => Show (ExpInner ea) where
   show (IdExp identifier) = identifier
   show (Call identifier args) = identifier ++ "(" ++ unwords (map show args)
   show (ArrAccess identifier index) = identifier ++ "[" ++ show index ++ "]"
+  show (TakeAddress identifier) = "&" ++ identifier
 
 data VarDef = VarDef
   { varDefId :: Id,

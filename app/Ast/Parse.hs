@@ -109,6 +109,7 @@ expression = eqexp
         <|> PC.try idexp
         <|> PC.try parenexp
         <|> PC.try charexp
+        <|> PC.try takeAddress
         <|> numexp
       where
         numexp = do
@@ -129,14 +130,17 @@ expression = eqexp
           arrId <- identifier
           arrIndex <- brackets expression
           return Exp {expAnnot = (), expInner = ArrAccess {arrId, arrIndex}}
+        takeAddress = do
+          _ <- symbol "&"
+          takeAddressId <- identifier
+          return Exp {expAnnot = (), expInner = TakeAddress {takeAddressId}}
 
     unaryexp = do
       op <-
         optional $
           PC.try (symbol "-" $> UnarySub)
             <|> PC.try (symbol "!" $> UnaryNot)
-            <|> PC.try (symbol "*" $> UnaryPtrDeref)
-            <|> (symbol "&" $> UnaryPtrAddress)
+            <|> (symbol "*" $> UnaryPtrDeref)
       case op of
         Just unaryOp -> do
           e <- PC.try unaryexp <|> factor

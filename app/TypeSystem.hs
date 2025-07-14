@@ -76,11 +76,9 @@ data UnaryOp
   = UnarySub
   | UnaryNot
   | UnaryPtrDeref
-  | UnaryPtrAddress
   deriving (Eq)
 
 instance Show UnaryOp where
   show UnarySub = "-"
   show UnaryNot = "!"
   show UnaryPtrDeref = "*"
-  show UnaryPtrAddress = "&"

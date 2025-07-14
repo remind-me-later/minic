@@ -3,7 +3,7 @@ module SymbolTable
     FunctionId,
     SymbolStorage (..),
     Symbol (..),
-    Env (..),
+    Environment (..),
     globalEnv,
     emptyEnv,
     SymbolTable (..),
@@ -19,6 +19,7 @@ module SymbolTable
     prevEnv,
     peekEnv,
     toList,
+    setAddressTaken,
   )
 where
 
@@ -41,21 +42,26 @@ instance Show SymbolStorage where
   show Local = "Local"
   show Global = "Global"
 
-data Symbol = Symbol {symbolId :: Id, symbolTy :: Ty, symbolAlloc :: SymbolStorage}
+data Symbol = Symbol
+  { symbolId :: Id,
+    symbolTy :: Ty,
+    symbolAlloc :: SymbolStorage,
+    addressTaken :: Bool
+  }
   deriving (Eq)
 
 instance Show Symbol where
   show Symbol {symbolTy, symbolAlloc} =
     "Symbol { ty: " ++ show symbolTy ++ ", alloc: " ++ show symbolAlloc ++ " }"
 
-data Env = Env
+data Environment = Env
   { envBlockId :: BlockId,
     envSymbols :: Map.Map Id Symbol,
     parentBlockId :: Maybe BlockId
   }
   deriving (Eq)
 
-instance Show Env where
+instance Show Environment where
   show Env {envBlockId, envSymbols} =
     "Env { blockId: "
       ++ show envBlockId
@@ -63,14 +69,14 @@ instance Show Env where
       ++ show (Map.toList envSymbols)
       ++ " }"
 
-globalEnv :: Env
+globalEnv :: Environment
 globalEnv = Env {envBlockId = 0, envSymbols = Map.empty, parentBlockId = Nothing}
 
-emptyEnv :: BlockId -> BlockId -> Env
+emptyEnv :: BlockId -> BlockId -> Environment
 emptyEnv envBlockId parentBlockId = Env {envBlockId, envSymbols = Map.empty, parentBlockId = Just parentBlockId}
 
 data SymbolTable = SymbolTable
-  { blockEnvs :: Map.Map BlockId SymbolTable.Env,
+  { blockEnvs :: Map.Map BlockId Environment,
     nextBlockId :: BlockId
   }
   deriving (Show, Eq)
@@ -78,7 +84,7 @@ data SymbolTable = SymbolTable
 globalSymbolTable :: SymbolTable
 globalSymbolTable = SymbolTable {blockEnvs = Map.singleton 0 globalEnv, nextBlockId = 1}
 
-insertBlock :: SymbolTable.Env -> SymbolTable -> (BlockId, SymbolTable)
+insertBlock :: Environment -> SymbolTable -> (BlockId, SymbolTable)
 insertBlock env st@SymbolTable {blockEnvs, nextBlockId} =
   let newId = nextBlockId
       newSt =
@@ -88,7 +94,7 @@ insertBlock env st@SymbolTable {blockEnvs, nextBlockId} =
           }
    in (newId, newSt)
 
-lookupBlock :: BlockId -> SymbolTable -> Maybe SymbolTable.Env
+lookupBlock :: BlockId -> SymbolTable -> Maybe Environment
 lookupBlock blockId SymbolTable {blockEnvs} = Map.lookup blockId blockEnvs
 
 currentBlockId :: SymbolTable -> BlockId
@@ -98,7 +104,13 @@ insertFunToEnv :: BlockId -> FunctionId -> Ty -> SymbolTable -> SymbolTable
 insertFunToEnv blockId funId funTy st@SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env ->
-      let newSymbol = Symbol {symbolId = funId, symbolTy = funTy, symbolAlloc = Global}
+      let newSymbol =
+            Symbol
+              { symbolId = funId,
+                symbolTy = funTy,
+                symbolAlloc = Global,
+                addressTaken = False
+              }
           newEnv = env {envSymbols = Map.insert funId newSymbol (envSymbols env)}
           newBlockEnvs = Map.insert blockId newEnv blockEnvs
        in st {blockEnvs = newBlockEnvs}
@@ -119,7 +131,13 @@ insertVar :: VarDef -> SymbolStorage -> BlockId -> SymbolTable -> SymbolTable
 insertVar varDef alloc blockId st@SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env ->
-      let newSymbol = Symbol {symbolId = varDefId varDef, symbolTy = varDefTy varDef, symbolAlloc = alloc}
+      let newSymbol =
+            Symbol
+              { symbolId = varDefId varDef,
+                symbolTy = varDefTy varDef,
+                symbolAlloc = alloc,
+                addressTaken = False
+              }
           newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
           newBlockEnvs = Map.insert blockId newEnv blockEnvs
        in st {blockEnvs = newBlockEnvs}
@@ -144,7 +162,7 @@ prevEnv blockId SymbolTable {blockEnvs} =
       Nothing -> error $ "No parent block for block ID " ++ show blockId
     Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
 
-peekEnv :: BlockId -> SymbolTable -> SymbolTable.Env
+peekEnv :: BlockId -> SymbolTable -> Environment
 peekEnv blockId SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env -> env
@@ -154,4 +172,18 @@ toList :: BlockId -> SymbolTable -> [Symbol]
 toList blockId SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env -> Map.elems (envSymbols env)
+    Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
+
+setAddressTaken :: Id -> BlockId -> SymbolTable -> SymbolTable
+setAddressTaken identifier blockId st@SymbolTable {blockEnvs} =
+  case Map.lookup blockId blockEnvs of
+    Just env ->
+      case Map.lookup identifier (envSymbols env) of
+        Just symbol ->
+          let updatedSymbol = symbol {addressTaken = True}
+              updatedSymbols = Map.insert identifier updatedSymbol (envSymbols env)
+              updatedEnv = env {envSymbols = updatedSymbols}
+              updatedBlockEnvs = Map.insert blockId updatedEnv blockEnvs
+           in st {blockEnvs = updatedBlockEnvs}
+        Nothing -> error $ "Symbol with ID " ++ show identifier ++ " not found in block " ++ show blockId
     Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."

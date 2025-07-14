@@ -112,6 +112,7 @@ data Inst
   | JmpCond {jmpCond :: JmpCond, jmpCondLabel :: String}
   | Label {labelName :: String}
   | Syscall
+  | Lea {leaDst :: Op, leaSrc :: Op}
   deriving (Eq)
 
 instance Show Inst where
@@ -135,3 +136,4 @@ instance Show Inst where
   show JmpCond {jmpCond, jmpCondLabel} = "\t" ++ show jmpCond ++ " " ++ jmpCondLabel
   show Label {labelName} = labelName ++ ":"
   show Syscall = "\tsyscall"
+  show Lea {leaDst, leaSrc} = "\tleaq " ++ show leaSrc ++ ", " ++ show leaDst

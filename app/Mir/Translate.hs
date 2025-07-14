@@ -197,6 +197,18 @@ transExp Ast.Exp {expAnnot = annot, expInner}
       t <- gets tmp
       stackOp <- arrayAccess arrId (TempOperand t)
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
+  | Ast.TakeAddress {takeAddressId} <- expInner = do
+      -- Take the address of a variable
+      symb <- gets (lookupSymbol takeAddressId)
+      case symb of
+        Just SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Local} -> do
+          offset <- getStackOffset takeAddressId
+          case offset of
+            Just off -> do
+              t <- gets tmp
+              modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand off}]
+            Nothing -> error $ "Variable " ++ takeAddressId ++ " not allocated on stack"
+        _ -> error $ "Take address error for: " ++ takeAddressId
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do

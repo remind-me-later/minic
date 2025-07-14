@@ -218,6 +218,10 @@ translateInst inst
         TypeSystem.UnaryNot -> do
           emitAsmInst Not {notOp = Reg Rax}
           changeFlagOp Jz
+        TypeSystem.UnaryPtrDeref -> do
+          -- assume pointer address is in Rax and load with lea
+          emitAsmInst $ Lea {leaDst = Reg Rax, leaSrc = Mem {memBase = Rax, memIndexScale = Nothing, memDisp = 0}}
+          changeFlagOp Jnz
 
       -- Store result to destination
       case dstOp of

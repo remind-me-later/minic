@@ -119,14 +119,12 @@ typeUnaryOp op Exp {expAnnot}
       case op of
         UnarySub -> return IntTy
         UnaryNot -> return BoolTy
-        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = IntTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for IntTy: " ++ show op))
           return VoidTy
   | BoolTy <- expAnnot =
       case op of
         UnaryNot -> return BoolTy
-        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = BoolTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for BoolTy: " ++ show op))
           return VoidTy
@@ -134,14 +132,12 @@ typeUnaryOp op Exp {expAnnot}
       case op of
         UnarySub -> return CharTy
         UnaryNot -> return BoolTy
-        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = CharTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for CharTy: " ++ show op))
           return VoidTy
-  | ptrTy@PtrTy {ptrTyElemTy} <- expAnnot =
+  | PtrTy {ptrTyElemTy} <- expAnnot =
       case op of
         UnaryPtrDeref -> return ptrTyElemTy
-        UnaryPtrAddress -> return (PtrTy {ptrTyElemTy = ptrTy})
         _ -> do
           modify' (addError ("Can only dereference a pointer with '*', got: " ++ show expAnnot))
           return VoidTy
@@ -219,6 +215,20 @@ typeExp Exp {expInner}
         Nothing -> do
           modify' (addError ("Undefined variable: " ++ arrId))
           return Exp {expAnnot = VoidTy, expInner = ArrAccess {arrId, arrIndex = arrIndex'}}
+  | TakeAddress {takeAddressId} <- expInner = do
+      symb <- gets (lookupSymbol takeAddressId)
+      case symb of
+        Just SymbolTable.Symbol {symbolTy, SymbolTable.symbolAlloc} -> do
+          when (symbolAlloc /= SymbolTable.Local) $
+            modify' (addError ("Cannot take address of non-local variable: " ++ takeAddressId))
+          curBlockId <- gets (\TypingState {currentBlock} -> currentBlock)
+          symbolTable <- gets symbolTable
+          let symbolTable' = SymbolTable.setAddressTaken takeAddressId curBlockId symbolTable
+          modify' (\ts -> ts {symbolTable = symbolTable'})
+          return Exp {expAnnot = PtrTy {ptrTyElemTy = symbolTy}, expInner = TakeAddress {takeAddressId}}
+        Nothing -> do
+          modify' (addError ("Undefined variable: " ++ takeAddressId))
+          return Exp {expAnnot = VoidTy, expInner = TakeAddress {takeAddressId}}
 
 typeStmt :: RawStmt -> State TypingState TypedStmt
 typeStmt stmt
