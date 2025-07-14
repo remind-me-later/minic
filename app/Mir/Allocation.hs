@@ -1,4 +1,13 @@
-module Mir.Allocation where
+module Mir.Allocation
+  ( AllocationResult (..),
+    SpillLocation (..),
+    RegisterAssignment,
+    allocateRegisters,
+    applyAllocation,
+    allocateFunction,
+    allocateProgram,
+  )
+where
 
 import Data.List (sortOn)
 import Data.Map (Map)
@@ -136,14 +145,6 @@ transformInst allocation inst = case inst of
     Param
       { paramOperand = transformOperand allocation paramOperand
       }
-
-transformTemp :: AllocationResult -> Temp -> Temp
-transformTemp allocation temp =
-  case transformOperand allocation (TempOperand temp) of
-    TempOperand t -> t -- If it stayed a temp (spilled)
-    RegOperand _ -> error "Cannot convert register to temp directly"
-    StackOperand _ -> error "Cannot convert stack slot to temp directly"
-    _ -> error "Unexpected operand type"
 
 transformTerminator :: AllocationResult -> Terminator -> Terminator
 transformTerminator _allocation terminator = case terminator of

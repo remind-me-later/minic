@@ -1,4 +1,20 @@
-module Ast.Types where
+module Ast.Types
+  ( Exp (..),
+    ExpInner (..),
+    VarDef (..),
+    Stmt (..),
+    Block (..),
+    Fun (..),
+    ExternFun (..),
+    Program (..),
+    RawExp,
+    RawStmt,
+    RawBlock,
+    RawFun,
+    RawExternFun,
+    RawProgram,
+  )
+where
 
 import TypeSystem
 

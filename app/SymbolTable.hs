@@ -1,4 +1,26 @@
-module SymbolTable where
+module SymbolTable
+  ( BlockId,
+    FunctionId,
+    SymbolStorage (..),
+    Symbol (..),
+    Env (..),
+    globalEnv,
+    emptyEnv,
+    SymbolTable (..),
+    globalSymbolTable,
+    insertBlock,
+    lookupBlock,
+    currentBlockId,
+    insertFunToEnv,
+    lookupSymbol,
+    insertVar,
+    insertArg,
+    openEnv,
+    prevEnv,
+    peekEnv,
+    toList,
+  )
+where
 
 import Ast.Types (VarDef (..))
 import Data.Map qualified as Map
@@ -8,18 +30,18 @@ type BlockId = Int
 
 type FunctionId = String
 
-data SymbolAlloc
+data SymbolStorage
   = Argument
   | Local
   | Global
   deriving (Eq)
 
-instance Show SymbolAlloc where
+instance Show SymbolStorage where
   show Argument = "Argument"
   show Local = "Local"
   show Global = "Global"
 
-data Symbol = Symbol {symbolId :: Id, symbolTy :: Ty, symbolAlloc :: SymbolAlloc}
+data Symbol = Symbol {symbolId :: Id, symbolTy :: Ty, symbolAlloc :: SymbolStorage}
   deriving (Eq)
 
 instance Show Symbol where
@@ -93,7 +115,7 @@ lookupSymbol identifier blockId st@SymbolTable {blockEnvs} =
           Nothing -> Nothing
     Nothing -> Nothing
 
-insertVar :: VarDef -> SymbolAlloc -> BlockId -> SymbolTable -> SymbolTable
+insertVar :: VarDef -> SymbolStorage -> BlockId -> SymbolTable -> SymbolTable
 insertVar varDef alloc blockId st@SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env ->

@@ -1,4 +1,11 @@
-module Mir.Interference where
+module Mir.Interference
+  ( InterferenceGraph (..),
+    buildInterferenceGraph,
+    functionInterferenceGraph,
+    programInterferenceGraph,
+    getAllTemps,
+  )
+where
 
 import Data.Map (Map)
 import Data.Map qualified as Map

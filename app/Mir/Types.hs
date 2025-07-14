@@ -1,4 +1,19 @@
-module Mir.Types where
+module Mir.Types
+  ( Temp (..),
+    incTempLabel,
+    BasicBlockId,
+    Register (..),
+    availableRegisters,
+    Operand (..),
+    Terminator (..),
+    Inst (..),
+    BasicBlock (..),
+    CFG (..),
+    Fun (..),
+    ExternFun (..),
+    Program (..),
+  )
+where
 
 import Data.Set
 import SymbolTable qualified

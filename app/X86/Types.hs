@@ -1,4 +1,10 @@
-module X86.Types where
+module X86.Types
+  ( Reg (..),
+    Op (..),
+    JmpCond (..),
+    Inst (..),
+  )
+where
 
 -- use GAS (AT&T) syntax
 

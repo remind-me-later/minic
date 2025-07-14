@@ -1,4 +1,11 @@
-module TypeSystem where
+module TypeSystem
+  ( Id,
+    Ty (..),
+    sizeOf,
+    BinOp (..),
+    UnaryOp (..),
+  )
+where
 
 type Id = String
 

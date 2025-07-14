@@ -1,4 +1,17 @@
-module X86.Translate where
+module X86.Translate
+  ( functionPrologue,
+    functionEpilogue,
+    mainFunctionPrologue,
+    mainFunctionEpilogue,
+    makeFileHeader,
+    TranslationState (..),
+    changeFlagOp,
+    emitAsmInst,
+    translateProgram,
+    mirRegisterToX86,
+    translateOperand,
+  )
+where
 
 import Control.Monad (forM_, unless, when)
 import Control.Monad.State (State, gets, modify', runState)
