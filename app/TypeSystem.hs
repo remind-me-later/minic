@@ -15,6 +15,9 @@ data Ty
       { arrTyElemTy :: Ty,
         arrTySize :: Int
       }
+  | PtrTy
+      { ptrTyElemTy :: Ty
+      }
   deriving (Show, Eq)
 
 sizeOf :: Ty -> Int
@@ -22,6 +25,7 @@ sizeOf IntTy = 8
 sizeOf BoolTy = 8
 sizeOf CharTy = 1
 sizeOf VoidTy = 0
+sizeOf (PtrTy {}) = 8 -- FIXME: Assuming 64-bit pointers
 sizeOf (FunTy {funTyArgs}) = sum (map sizeOf funTyArgs)
 sizeOf (ArrTy {arrTyElemTy, arrTySize}) = sizeOf arrTyElemTy * arrTySize
 
@@ -64,8 +68,12 @@ instance Show BinOp where
 data UnaryOp
   = UnarySub
   | UnaryNot
+  | UnaryPtrDeref
+  | UnaryPtrAddress
   deriving (Eq)
 
 instance Show UnaryOp where
   show UnarySub = "-"
   show UnaryNot = "!"
+  show UnaryPtrDeref = "*"
+  show UnaryPtrAddress = "&"

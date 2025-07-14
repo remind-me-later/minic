@@ -207,7 +207,7 @@ translateInst inst
         TypeSystem.UnaryNot -> do
           emitAsmInst Not {notOp = Reg Rax}
           changeFlagOp Jz
-
+        
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
@@ -255,14 +255,13 @@ translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBlockId, Mir.bloc
   unless isMain $ translateTerminator blockTerminator
 
 translateCfg :: Bool -> Mir.CFG -> State TranslationState ()
-translateCfg _ Mir.CFG {Mir.cfgBlocks = []} = 
+translateCfg _ Mir.CFG {Mir.cfgBlocks = []} =
   error "Empty CFG - cannot translate"
-translateCfg isMain Mir.CFG {Mir.cfgBlocks = entryBlock:rest} = do
+translateCfg isMain Mir.CFG {Mir.cfgBlocks = entryBlock : rest} = do
   -- FIXME: should not rely on basic block order
   translateBasicBlock True isMain entryBlock
   forM_ rest $ \block ->
     translateBasicBlock False isMain block
-
 
 translateMainFun :: Mir.Fun -> State TranslationState ()
 translateMainFun Mir.Fun {Mir.funCfg} = do

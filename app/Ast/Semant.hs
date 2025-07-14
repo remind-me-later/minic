@@ -116,23 +116,35 @@ typeBinOp op Exp {expAnnot = lty} Exp {expAnnot = rty}
 
 typeUnaryOp :: UnaryOp -> TypedExp -> State TypingState Ty
 typeUnaryOp op Exp {expAnnot}
-  | expAnnot == IntTy =
+  | IntTy <- expAnnot =
       case op of
         UnarySub -> return IntTy
+        UnaryNot -> return BoolTy
+        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = IntTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for IntTy: " ++ show op))
           return VoidTy
-  | expAnnot == BoolTy =
+  | BoolTy <- expAnnot =
       case op of
         UnaryNot -> return BoolTy
+        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = BoolTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for BoolTy: " ++ show op))
           return VoidTy
-  | expAnnot == CharTy =
+  | CharTy <- expAnnot =
       case op of
         UnarySub -> return CharTy
+        UnaryNot -> return BoolTy
+        UnaryPtrAddress -> return PtrTy {ptrTyElemTy = CharTy}
         _ -> do
           modify' (addError ("Unsupported unary operator for CharTy: " ++ show op))
+          return VoidTy
+  | ptrTy@PtrTy {ptrTyElemTy} <- expAnnot =
+      case op of
+        UnaryPtrDeref -> return ptrTyElemTy
+        UnaryPtrAddress -> return (PtrTy {ptrTyElemTy = ptrTy})
+        _ -> do
+          modify' (addError ("Can only dereference a pointer with '*', got: " ++ show expAnnot))
           return VoidTy
   | otherwise = do
       modify' (addError ("Type mismatch in unary operator: " ++ show expAnnot ++ " " ++ show op))

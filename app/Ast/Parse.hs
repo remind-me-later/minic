@@ -64,13 +64,21 @@ id =
       isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
    in lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
 
+basicty :: PC.Parser Ty
+basicty = lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
+  where
+    parseInt = keyword "int" $> IntTy
+    parseChar = keyword "char" $> CharTy
+    parseBool = keyword "bool" $> BoolTy
+    parseVoid = keyword "void" $> VoidTy
+
 ty :: PC.Parser Ty
-ty =
-  let parseInt = (keyword "int" $> IntTy)
-      parseChar = (keyword "char" $> CharTy)
-      parseBool = (keyword "bool" $> BoolTy)
-      parseVoid = (keyword "void" $> VoidTy)
-   in lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
+ty = do
+  baseTy <- basicty
+  maybePtr <- optional (symbol "*" $> PtrTy {ptrTyElemTy = baseTy})
+  case maybePtr of
+    Just ptrTy -> return ptrTy
+    Nothing -> return baseTy
 
 num :: PC.Parser Int
 num =
@@ -126,7 +134,12 @@ exp = eqexp
           return Exp {expAnnot = (), expInner = ArrAccess {arrId, arrIndex}}
 
     unaryexp = do
-      op <- optional $ PC.try (symbol "-" $> UnarySub) <|> (symbol "!" $> UnaryNot)
+      op <-
+        optional $
+          PC.try (symbol "-" $> UnarySub)
+            <|> PC.try (symbol "!" $> UnaryNot)
+            <|> PC.try (symbol "*" $> UnaryPtrDeref)
+            <|> (symbol "&" $> UnaryPtrAddress)
       case op of
         Just unaryOp -> do
           e <- PC.try unaryexp <|> factor
