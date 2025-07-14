@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module Ast.Types where
 
 import TypeSystem
@@ -41,12 +39,12 @@ data ExpInner ea
 
 instance (Show ea) => Show (ExpInner ea) where
   show (BinExp left op right) = "(" ++ show left ++ " " ++ show op ++ " " ++ show right ++ ")"
-  show (UnaryExp unop exp) = show unop ++ show exp
+  show (UnaryExp unop unexp) = show unop ++ show unexp
   show (NumberExp num) = show num
   show (CharExp char) = "'" ++ [char] ++ "'"
-  show (IdExp id) = id
-  show (Call id args) = id ++ "(" ++ unwords (map show args)
-  show (ArrAccess id index) = id ++ "[" ++ show index ++ "]"
+  show (IdExp identifier) = identifier
+  show (Call identifier args) = identifier ++ "(" ++ unwords (map show args)
+  show (ArrAccess identifier index) = identifier ++ "[" ++ show index ++ "]"
 
 data VarDef = VarDef
   { varDefId :: Id,

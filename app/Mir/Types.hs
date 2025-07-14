@@ -1,9 +1,7 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module Mir.Types where
 
 import Data.Set
-import Env qualified
+import SymbolTable qualified
 import TypeSystem
 
 newtype Temp
@@ -16,7 +14,7 @@ incTempLabel (Temp label) = Temp (label + 1)
 instance Show Temp where
   show (Temp label) = "t" ++ show label
 
-type BlockId = String
+type BasicBlockId = String
 
 data Register = R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8
   deriving (Eq, Ord, Show, Enum, Bounded)
@@ -41,16 +39,16 @@ instance Show Operand where
 
 data Terminator
   = Return {retOperand :: Maybe Operand}
-  | Jump {jumpTarget :: BlockId}
-  | CondJump {condOperand :: Operand, condTrueBlockId :: BlockId, condFalseBlockId :: BlockId}
+  | Jump {jumpTarget :: BasicBlockId}
+  | CondJump {condOperand :: Operand, condTrueBasicBlockId :: BasicBlockId, condFalseBasicBlockId :: BasicBlockId}
   deriving (Eq)
 
 instance Show Terminator where
   show (Return Nothing) = "return"
   show (Return (Just operand)) = "return " ++ show operand
   show (Jump target) = "goto " ++ target
-  show (CondJump cond trueBlockId falseBlockId) =
-    "if " ++ show cond ++ " goto " ++ trueBlockId ++ " else goto " ++ falseBlockId
+  show (CondJump cond trueBasicBlockId falseBasicBlockId) =
+    "if " ++ show cond ++ " goto " ++ trueBasicBlockId ++ " else goto " ++ falseBasicBlockId
 
 data Inst
   = Assign {instDst :: Operand, instSrc :: Operand}
@@ -72,7 +70,7 @@ instance Show Inst where
 -- A Basic Block is a sequence of instructions that starts with a blockId
 -- and ends with a control flow instruction (Jump, CondJump, Return).
 data BasicBlock = BasicBlock
-  { cfgBlockId :: BlockId,
+  { cfgBasicBlockId :: BasicBlockId,
     blockInsts :: [Inst],
     blockTerminator :: Terminator
   }
@@ -87,18 +85,18 @@ instance Show BasicBlock where
       ++ show terminator
 
 data CFG = CFG
-  { cfgEntryBlockId :: BlockId,
-    cfgExitBlocks :: Set BlockId,
+  { cfgEntryBasicBlockId :: BasicBlockId,
+    cfgExitBlocks :: Set BasicBlockId,
     -- TODO: this list should be non empty
     cfgBlocks :: [BasicBlock]
   }
   deriving (Eq)
 
 instance Show CFG where
-  show (CFG entryBlockId exitBlocks blocks) =
+  show (CFG entryBasicBlockId exitBlocks blocks) =
     "CFG:\n"
       ++ "Entry Block: "
-      ++ entryBlockId
+      ++ entryBasicBlockId
       ++ "\n"
       ++ "Exit Blocks: "
       ++ unwords (show <$> toList exitBlocks)
@@ -108,16 +106,16 @@ instance Show CFG where
 
 data Fun = Fun
   { funId :: Id,
-    funArgs :: [Env.Symbol],
-    funLocals :: [Env.Symbol],
+    funArgs :: [SymbolTable.Symbol],
+    funLocals :: [SymbolTable.Symbol],
     funCfg :: CFG
   }
   deriving (Eq)
 
 instance Show Fun where
-  show (Fun id args locals cfg) =
+  show (Fun identifier args locals cfg) =
     "Function: "
-      ++ id
+      ++ identifier
       ++ "\nArguments: "
       ++ unwords (show <$> args)
       ++ "\nLocals: "
@@ -131,7 +129,7 @@ newtype ExternFun = ExternFun
   deriving (Eq)
 
 instance Show ExternFun where
-  show (ExternFun id) = "Extern Function: " ++ id
+  show (ExternFun identifier) = "Extern Function: " ++ identifier
 
 data Program = Program
   { programFuns :: [Fun],

@@ -1,5 +1,4 @@
 -- Dragon book: 9.2.5 Live-Variable Analysis
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Mir.Liveness
   ( LivenessInfo (..),
@@ -23,8 +22,8 @@ import TypeSystem (Id)
 type LiveSet = Set Temp
 
 data LivenessInfo = LivenessInfo
-  { livenessIn :: Map BlockId LiveSet,
-    livenessOut :: Map BlockId LiveSet
+  { livenessIn :: Map BasicBlockId LiveSet,
+    livenessOut :: Map BasicBlockId LiveSet
   }
   deriving (Eq)
 
@@ -71,80 +70,80 @@ getTerminatorUses Return {retOperand} = maybe Set.empty getOperandTemps retOpera
 getTerminatorUses _ = Set.empty
 
 -- Get successor blocks from terminator
-getSuccessors :: Terminator -> [BlockId]
+getSuccessors :: Terminator -> [BasicBlockId]
 getSuccessors Return {} = []
 getSuccessors Jump {jumpTarget} = [jumpTarget]
-getSuccessors CondJump {condTrueBlockId, condFalseBlockId} = [condTrueBlockId, condFalseBlockId]
+getSuccessors CondJump {condTrueBasicBlockId, condFalseBasicBlockId} = [condTrueBasicBlockId, condFalseBasicBlockId]
 
 performLivenessAnalysis :: CFG -> LivenessInfo
 performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn initialLiveOut
   where
     blockList = cfgBlocks cfg
-    blockMap = Map.fromList [(cfgBlockId b, b) | b <- blockList]
+    blockMap = Map.fromList [(cfgBasicBlockId b, b) | b <- blockList]
     predecessors = buildPredecessorMap cfg
       where
         -- Build predecessor map for CFG
-        buildPredecessorMap :: CFG -> Map BlockId [BlockId]
+        buildPredecessorMap :: CFG -> Map BasicBlockId [BasicBlockId]
         buildPredecessorMap CFG {cfgBlocks} = foldr addEdges Map.empty cfgBlocks
           where
-            addEdges BasicBlock {blockTerminator, cfgBlockId} acc =
-              foldr (\succ -> Map.insertWith (++) succ [cfgBlockId]) acc successors
+            addEdges BasicBlock {blockTerminator, cfgBasicBlockId} acc =
+              foldr (\nextBlock -> Map.insertWith (++) nextBlock [cfgBasicBlockId]) acc successors
               where
                 successors = getSuccessors blockTerminator
 
     -- Initialize all sets to empty
-    initialLiveIn = Map.fromList [(cfgBlockId b, Set.empty) | b <- blockList]
-    initialLiveOut = Map.fromList [(cfgBlockId b, Set.empty) | b <- blockList]
+    initialLiveIn = Map.fromList [(cfgBasicBlockId b, Set.empty) | b <- blockList]
+    initialLiveOut = Map.fromList [(cfgBasicBlockId b, Set.empty) | b <- blockList]
 
     fixedPoint ::
-      Map BlockId BasicBlock ->
-      Map BlockId [BlockId] ->
-      Map BlockId LiveSet ->
-      Map BlockId LiveSet ->
+      Map BasicBlockId BasicBlock ->
+      Map BasicBlockId [BasicBlockId] ->
+      Map BasicBlockId LiveSet ->
+      Map BasicBlockId LiveSet ->
       LivenessInfo
-    fixedPoint blockMap predecessors liveIn liveOut =
+    fixedPoint blockMap' predecessors' liveIn liveOut =
       if newLiveIn == liveIn && newLiveOut == liveOut
         then LivenessInfo {livenessIn = newLiveIn, livenessOut = newLiveOut}
-        else fixedPoint blockMap predecessors newLiveIn newLiveOut
+        else fixedPoint blockMap' predecessors' newLiveIn newLiveOut
       where
-        (newLiveIn, newLiveOut) = oneIteration blockMap predecessors liveIn liveOut
+        (newLiveIn, newLiveOut) = oneIteration blockMap' predecessors' liveIn liveOut
 
         oneIteration ::
-          Map BlockId BasicBlock ->
-          Map BlockId [BlockId] ->
-          Map BlockId LiveSet ->
-          Map BlockId LiveSet ->
-          (Map BlockId LiveSet, Map BlockId LiveSet)
-        oneIteration blockMap predecessors oldLiveIn oldLiveOut = (newLiveIn, newLiveOut)
+          Map BasicBlockId BasicBlock ->
+          Map BasicBlockId [BasicBlockId] ->
+          Map BasicBlockId LiveSet ->
+          Map BasicBlockId LiveSet ->
+          (Map BasicBlockId LiveSet, Map BasicBlockId LiveSet)
+        oneIteration blockMap'' predecessors'' oldLiveIn oldLiveOut = (newLiveIn', newLiveOut')
           where
-            blockIds = Map.keys blockMap
-            (newLiveIn, newLiveOut) =
+            blockIds = Map.keys blockMap''
+            (newLiveIn', newLiveOut') =
               foldr
-                (updateBlock blockMap predecessors)
+                (updateBlock blockMap'' predecessors'')
                 (oldLiveIn, oldLiveOut)
                 blockIds
 
             updateBlock ::
-              Map BlockId BasicBlock ->
-              Map BlockId [BlockId] ->
-              BlockId ->
-              (Map BlockId LiveSet, Map BlockId LiveSet) ->
-              (Map BlockId LiveSet, Map BlockId LiveSet)
-            updateBlock blockMap predecessors blockId (liveIn, liveOut) =
-              case Map.lookup blockId blockMap of
-                Nothing -> (liveIn, liveOut)
-                Just block -> (Map.insert blockId newIn liveIn, Map.insert blockId newOut liveOut)
+              Map BasicBlockId BasicBlock ->
+              Map BasicBlockId [BasicBlockId] ->
+              BasicBlockId ->
+              (Map BasicBlockId LiveSet, Map BasicBlockId LiveSet) ->
+              (Map BasicBlockId LiveSet, Map BasicBlockId LiveSet)
+            updateBlock blockMap''' predecessors''' blockId (liveIn'', liveOut'') =
+              case Map.lookup blockId blockMap''' of
+                Nothing -> (liveIn'', liveOut'')
+                Just block -> (Map.insert blockId newIn liveIn'', Map.insert blockId newOut liveOut'')
                   where
                     -- OUT[B] = union of IN[S] for all successors S of B
                     successors = getSuccessors (blockTerminator block)
-                    newOut = Set.unions [Map.findWithDefault Set.empty s liveIn | s <- successors]
+                    newOut = Set.unions [Map.findWithDefault Set.empty s liveIn'' | s <- successors]
 
                     -- Calculate used and defined temps for this block
                     (used, defined) = analyzeBlock block
 
                     -- Entry blocks should always have empty IN sets
                     -- IN[B] = USE[B] ∪ (OUT[B] - DEF[B]) for non-entry blocks
-                    isEntryBlock = null (Map.findWithDefault [] blockId predecessors)
+                    isEntryBlock = null (Map.findWithDefault [] blockId predecessors''')
                     newIn =
                       if isEntryBlock
                         then Set.empty
@@ -161,17 +160,17 @@ performLivenessAnalysis cfg = fixedPoint blockMap predecessors initialLiveIn ini
                     (used, defined) = foldr processInstruction (termUses, Set.empty) insts
 
                     processInstruction :: Inst -> (Set Temp, Set Temp) -> (Set Temp, Set Temp)
-                    processInstruction inst (used, defined) = (newUsed, newDefined)
+                    processInstruction inst (used', defined') = (newUsed, newDefined)
                       where
                         -- `used` are the temps used before definition until now in the block (reverse order)
                         -- `defined` are the temps defined in the block
                         instUses = getUsedTemps inst
                         instDefs = getDefinedTemps inst
                         -- ReAssigne newly defined temps from used set, add new uses
-                        newUsed = (used `Set.difference` instDefs) `Set.union` instUses
-                        newDefined = defined `Set.union` instDefs
+                        newUsed = (used' `Set.difference` instDefs) `Set.union` instUses
+                        newDefined = defined' `Set.union` instDefs
 
-getLiveAtInstruction :: LivenessInfo -> BlockId -> Inst -> Set Temp
+getLiveAtInstruction :: LivenessInfo -> BasicBlockId -> Inst -> Set Temp
 getLiveAtInstruction liveness blockId inst =
   let liveOut = Map.findWithDefault Set.empty blockId (livenessOut liveness)
       defined = getDefinedTemps inst

@@ -13,6 +13,7 @@ import Mir.Liveness qualified as Liveness
 import Mir.Translate qualified
 import Mir.Types qualified
 import Options.Applicative
+import SymbolTable qualified
 import Text.Parsec qualified
 import X86.Translate qualified
 
@@ -95,7 +96,7 @@ parseFile fileName = do
     Right ast -> Right ast
     Left err -> Left $ "Parsing failed: " ++ show err
 
-typeCheckAst :: Ast.Types.RawProgram -> IO (Either String Ast.Semant.TypedProgram)
+typeCheckAst :: Ast.Types.RawProgram -> IO (Either String (Ast.Semant.TypedProgram, SymbolTable.SymbolTable))
 typeCheckAst ast = pure $ case Ast.Semant.typeProgram ast of
   Right table -> Right table
   Left errs -> Left $ "Type checking failed: " ++ show errs
@@ -191,6 +192,6 @@ processToMir fileName = do
     Right ast -> do
       typedResult <- typeCheckAst ast
       case typedResult of
-        Right typedAst -> return $ Right (Mir.Translate.transProgram typedAst)
+        Right (typedAst, symbolTable) -> return $ Right $ Mir.Translate.transProgram typedAst symbolTable
         Left err -> return $ Left err
     Left err -> return $ Left err

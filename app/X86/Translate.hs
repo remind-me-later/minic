@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module X86.Translate where
 
 import Control.Monad (forM_, unless, when)
@@ -207,7 +205,7 @@ translateInst inst
         TypeSystem.UnaryNot -> do
           emitAsmInst Not {notOp = Reg Rax}
           changeFlagOp Jz
-        
+
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
@@ -239,18 +237,18 @@ translateTerminator terminator
         Nothing -> return ()
       mapM_ emitAsmInst functionEpilogue
   | Mir.Jump {Mir.jumpTarget} <- terminator = emitAsmInst $ Jmp {jmpLabel = jumpTarget}
-  | Mir.CondJump {Mir.condTrueBlockId, Mir.condFalseBlockId} <- terminator = do
+  | Mir.CondJump {Mir.condTrueBasicBlockId, Mir.condFalseBasicBlockId} <- terminator = do
       lastJmpCond <- gets lastJmpCond
       jmpInstruction <- case lastJmpCond of
-        Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBlockId}
+        Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBasicBlockId}
         Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
-      emitAsmInst $ Jmp {jmpLabel = condFalseBlockId}
+      emitAsmInst $ Jmp {jmpLabel = condFalseBasicBlockId}
 
 translateBasicBlock :: Bool -> Bool -> Mir.BasicBlock -> State TranslationState ()
-translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBlockId, Mir.blockInsts, Mir.blockTerminator} = do
+translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBasicBlockId, Mir.blockInsts, Mir.blockTerminator} = do
   unless isEntryPoint $ do
-    emitAsmInst Label {labelName = cfgBlockId}
+    emitAsmInst Label {labelName = cfgBasicBlockId}
   mapM_ translateInst blockInsts
   unless isMain $ translateTerminator blockTerminator
 

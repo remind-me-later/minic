@@ -83,11 +83,11 @@ propagateInBlock (BasicBlock blockId insts terminator) =
 propagateInTerminator :: CopyMap -> Terminator -> Terminator
 propagateInTerminator copyMap term = case term of
   Return {retOperand = Just op} -> Return {retOperand = Just (substituteOperand copyMap op)}
-  CondJump {condOperand, condTrueBlockId, condFalseBlockId} ->
+  CondJump {condOperand, condTrueBasicBlockId, condFalseBasicBlockId} ->
     CondJump
       { condOperand = substituteOperand copyMap condOperand,
-        condTrueBlockId = condTrueBlockId,
-        condFalseBlockId = condFalseBlockId
+        condTrueBasicBlockId = condTrueBasicBlockId,
+        condFalseBasicBlockId = condFalseBasicBlockId
       }
   _ -> term
 

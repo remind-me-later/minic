@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module Mir.Translate (transProgram) where
 
 import Ast qualified
@@ -8,22 +6,22 @@ import Control.Monad (foldM, foldM_, unless)
 import Control.Monad.State (State, gets, modify', runState)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
-import Env qualified
 import Mir.Types
+import SymbolTable qualified
 import TypeSystem (BinOp (..), Id, Ty (..), sizeOf)
-import Prelude hiding (lookup)
 
 data TranslationState = TranslationState
   { tmp :: Temp,
     blockId :: Int,
-    curBlockId :: BlockId,
+    curBasicBlockId :: BasicBlockId,
     currentInsts :: [Inst],
     blocks :: [BasicBlock],
-    envs :: Env.EnvStack,
+    symbolTable :: SymbolTable.SymbolTable,
     varToTemp :: Map.Map Id Temp,
     stackOffsets :: Map.Map Id Int,
     currentLocalOffset :: Int, -- For locals (negative from RBP)
-    currentArgOffset :: Int -- For arguments (positive from RBP)
+    currentArgOffset :: Int, -- For arguments (positive from RBP)
+    curScopedBlockId :: SymbolTable.BlockId
   }
 
 allocateLocalToTmp :: Id -> State TranslationState Temp
@@ -79,65 +77,63 @@ idToStackOperand varId = do
 incTmp :: TranslationState -> TranslationState
 incTmp ts@TranslationState {tmp} = ts {tmp = incTempLabel tmp}
 
-incBlockId :: TranslationState -> TranslationState
-incBlockId ts@TranslationState {blockId} = ts {blockId = blockId + 1}
+incBasicBlockId :: TranslationState -> TranslationState
+incBasicBlockId ts@TranslationState {blockId} = ts {blockId = blockId + 1}
 
 addInstsToBlock :: [Inst] -> TranslationState -> TranslationState
 addInstsToBlock insts ts@TranslationState {currentInsts = curInsts} =
   ts {currentInsts = curInsts ++ insts}
 
-setCurBlockId :: BlockId -> TranslationState -> TranslationState
-setCurBlockId blockId ts = ts {curBlockId = blockId}
+setCurBasicBlockId :: BasicBlockId -> TranslationState -> TranslationState
+setCurBasicBlockId blockId ts = ts {curBasicBlockId = blockId}
 
 cfgFromBlocks :: [BasicBlock] -> CFG
 cfgFromBlocks blocks =
-  let entryBlockId = case blocks of
+  let entryBasicBlockId = case blocks of
         [] -> error "No blocks to create CFG"
-        (BasicBlock {cfgBlockId} : _) -> cfgBlockId
+        (BasicBlock {cfgBasicBlockId} : _) -> cfgBasicBlockId
       exitBlocks =
         foldr
           ( \(BasicBlock {blockTerminator}) acc -> case blockTerminator of
-              (Return {}) -> acc ++ [entryBlockId]
+              (Return {}) -> acc ++ [entryBasicBlockId]
               _ -> acc
           )
           mempty
           blocks
-   in CFG {cfgEntryBlockId = entryBlockId, cfgExitBlocks = Set.fromList exitBlocks, cfgBlocks = blocks}
+   in CFG {cfgEntryBasicBlockId = entryBasicBlockId, cfgExitBlocks = Set.fromList exitBlocks, cfgBlocks = blocks}
 
 terminateBlock :: Terminator -> TranslationState -> TranslationState
-terminateBlock terminator ts@TranslationState {blocks, currentInsts, curBlockId} =
+terminateBlock terminator ts@TranslationState {blocks, currentInsts, curBasicBlockId} =
   ts
-    { blocks = BasicBlock {cfgBlockId = curBlockId, blockInsts = currentInsts, blockTerminator = terminator} : blocks,
+    { blocks = BasicBlock {cfgBasicBlockId = curBasicBlockId, blockInsts = currentInsts, blockTerminator = terminator} : blocks,
       currentInsts = [],
-      curBlockId = "terminated_"
+      curBasicBlockId = "terminated_"
     }
 
 popBlocks :: TranslationState -> TranslationState
 popBlocks ts = ts {blocks = []}
 
-stackEnv :: Env.Env -> TranslationState -> TranslationState
-stackEnv env ts@TranslationState {envs} =
-  ts {envs = Env.pushEnv env envs}
-
 popEnv :: TranslationState -> TranslationState
-popEnv ts@TranslationState {envs} = ts {envs = Env.popEnv envs}
+popEnv ts@TranslationState {symbolTable, curScopedBlockId} =
+  ts {curScopedBlockId = SymbolTable.prevEnv curScopedBlockId symbolTable}
 
-lookup :: Id -> TranslationState -> Maybe Env.Symbol
-lookup id TranslationState {envs} = Env.lookup id envs
+lookupSymbol :: Id -> TranslationState -> Maybe SymbolTable.Symbol
+lookupSymbol identifier TranslationState {symbolTable, curScopedBlockId} =
+  SymbolTable.lookupSymbol identifier curScopedBlockId symbolTable
 
 transExp :: Ast.TypedExp -> State TranslationState ()
-transExp Ast.Exp {expAnnot = annot, expInner = exp}
-  | Ast.IdExp {idName} <- exp = do
+transExp Ast.Exp {expAnnot = annot, expInner}
+  | Ast.IdExp {idName} <- expInner = do
       t <- gets tmp
       stackOp <- idToStackOperand idName
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.NumberExp {numberValue} <- exp = do
+  | Ast.NumberExp {numberValue} <- expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstInt numberValue}]
-  | Ast.CharExp {charValue} <- exp = do
+  | Ast.CharExp {charValue} <- expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstChar charValue}]
-  | Ast.BinExp {binLeft = binLeft@Exp {expInner = binLeftInner}, binOp, binRight = binRight@Exp {expInner = binRightInner}} <- exp = do
+  | Ast.BinExp {binLeft = binLeft@Exp {expInner = binLeftInner}, binOp, binRight = binRight@Exp {expInner = binRightInner}} <- expInner = do
       case (binLeftInner, binRightInner) of
         (Ast.NumberExp {numberValue = l}, Ast.NumberExp {numberValue = r}) -> do
           t <- gets tmp
@@ -168,14 +164,14 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
           transExp binRight
           rt <- gets tmp
           modify' $ addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
-  | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- exp = do
+  | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
-  | Ast.UnaryExp {unaryOp, unaryExp} <- exp = do
+  | Ast.UnaryExp {unaryOp, unaryExp} <- expInner = do
       transExp unaryExp
       t <- gets tmp
       modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
-  | Ast.Call {callId, callArgs} <- exp = do
+  | Ast.Call {callId, callArgs} <- expInner = do
       mapM_
         ( \arg -> do
             transExp arg
@@ -190,13 +186,13 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
         _ -> do
           t <- gets tmp
           modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just (TempOperand t), callFunId = callId, callArgCount = length callArgs}]
-  | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- exp = do
+  | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- expInner = do
       -- Accessing an array with a constant index
       let idx = ConstInt numberValue
       stackOp <- arrayAccess arrId idx
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.ArrAccess {arrId, arrIndex} <- exp = do
+  | Ast.ArrAccess {arrId, arrIndex} <- expInner = do
       transExp arrIndex
       t <- gets tmp
       stackOp <- arrayAccess arrId (TempOperand t)
@@ -204,18 +200,18 @@ transExp Ast.Exp {expAnnot = annot, expInner = exp}
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do
-  symb <- gets (lookup arrId)
+  symb <- gets (lookupSymbol arrId)
   baseOffset <- getStackOffset arrId
   case (symb, baseOffset) of
-    (Just Env.Symbol {Env.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
+    (Just SymbolTable.Symbol {SymbolTable.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
       let elemSize = sizeOf arrTyElemTy
       return $ StackOperand (offset + idx * elemSize)
     _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId (TempOperand idxTemp) = do
-  symb <- gets (lookup arrId)
+  symb <- gets (lookupSymbol arrId)
   baseOffset <- getStackOffset arrId
   case (symb, baseOffset) of
-    (Just Env.Symbol {Env.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
+    (Just SymbolTable.Symbol {SymbolTable.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
       let elemSize = sizeOf arrTyElemTy
       -- Create a computed address temp
       t <- gets tmp
@@ -238,9 +234,9 @@ transStmt stmt
   | Ast.LetStmt {letVarDef = Ast.VarDef {varDefId, varDefTy}, letExp} <- stmt = do
       -- If the variable is a scalar allocate it on a temporary register
       -- If it's an array, allocate it on the stack
-      symb <- gets (lookup varDefId)
+      symb <- gets (lookupSymbol varDefId)
       case symb of
-        Just Env.Symbol {Env.symbolAlloc = Env.Local, Env.symbolTy = TypeSystem.IntTy} -> do
+        Just SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Local, SymbolTable.symbolTy = TypeSystem.IntTy} -> do
           transExp letExp
           t <- gets tmp -- Get the temp containing the expression result
           -- Treat variable as temp
@@ -263,10 +259,10 @@ transStmt stmt
       -- SInce the array is allocated on the stack, we can use the temporary
       -- registers to store the elements
       foldM_
-        ( \idx elem -> do
+        ( \idx item -> do
             -- access the array and store the element
             dstOp <- arrayAccess varDefId (ConstInt idx)
-            transExp elem
+            transExp item
             tElem <- gets tmp
             modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tElem}])
 
@@ -292,98 +288,98 @@ transStmt stmt
       modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}])
   | Ast.ReturnStmt {returnExp} <- stmt = do
       case returnExp of
-        Just exp -> do
-          transExp exp
+        Just expInner -> do
+          transExp expInner
           t <- gets tmp
           modify' $ terminateBlock (Return {retOperand = Just (TempOperand t)})
         Nothing -> modify' $ terminateBlock (Return {retOperand = Nothing})
   | Ast.IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
-      l <- gets blockId
-      modify' incBlockId
-      let thenBlockId = "IL" ++ show l
+      lthen <- gets blockId
+      modify' incBasicBlockId
+      let thenBasicBlockId = "IL" ++ show lthen
       transExp ifCond
 
       case ifElseBody of
         Just elseBody -> do
-          l <- gets blockId
-          modify' incBlockId
-          let elseBlockId = "IL" ++ show l
-          l <- gets blockId
-          modify' incBlockId
-          let endBlockId = "IL" ++ show l
+          lelse <- gets blockId
+          modify' incBasicBlockId
+          let elseBasicBlockId = "IL" ++ show lelse
+          lend <- gets blockId
+          modify' incBasicBlockId
+          let endBasicBlockId = "IL" ++ show lend
 
           t <- gets tmp
-          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = thenBlockId, condFalseBlockId = elseBlockId}
-          _ <- transBlock thenBlockId ifBody
-          modify' $ terminateBlock Jump {jumpTarget = endBlockId}
-          _ <- transBlock elseBlockId elseBody
-          modify' $ terminateBlock Jump {jumpTarget = endBlockId}
-          modify' (setCurBlockId endBlockId)
+          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = thenBasicBlockId, condFalseBasicBlockId = elseBasicBlockId}
+          _ <- transBlock thenBasicBlockId ifBody
+          modify' $ terminateBlock Jump {jumpTarget = endBasicBlockId}
+          _ <- transBlock elseBasicBlockId elseBody
+          modify' $ terminateBlock Jump {jumpTarget = endBasicBlockId}
+          modify' (setCurBasicBlockId endBasicBlockId)
         Nothing -> do
           l <- gets blockId
-          modify' incBlockId
-          let endBlockId = "if_end_" ++ show l
+          modify' incBasicBlockId
+          let endBasicBlockId = "if_end_" ++ show l
 
           t <- gets tmp
-          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = thenBlockId, condFalseBlockId = endBlockId}
-          _ <- transBlock thenBlockId ifBody
-          modify' $ terminateBlock Jump {jumpTarget = endBlockId}
-          modify' (setCurBlockId endBlockId)
+          modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = thenBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
+          _ <- transBlock thenBasicBlockId ifBody
+          modify' $ terminateBlock Jump {jumpTarget = endBasicBlockId}
+          modify' (setCurBasicBlockId endBasicBlockId)
   | Ast.WhileStmt {whileCond, whileBody} <- stmt = do
-      l <- gets blockId
-      modify' incBlockId
-      let condBlockId = "WL" ++ show l
-      l <- gets blockId
-      modify' incBlockId
-      let loopBlockId = "WL" ++ show l
-      l <- gets blockId
-      modify' incBlockId
-      let endBlockId = "WL" ++ show l
-      modify' incBlockId
+      lcond <- gets blockId
+      modify' incBasicBlockId
+      let condBasicBlockId = "WL" ++ show lcond
+      lwhile <- gets blockId
+      modify' incBasicBlockId
+      let loopBasicBlockId = "WL" ++ show lwhile
+      lend <- gets blockId
+      modify' incBasicBlockId
+      let endBasicBlockId = "WL" ++ show lend
+      modify' incBasicBlockId
 
-      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
+      modify' $ terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      modify' (setCurBlockId condBlockId)
+      modify' (setCurBasicBlockId condBasicBlockId)
       transExp whileCond
       t <- gets tmp
-      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = loopBlockId, condFalseBlockId = endBlockId}
+      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = loopBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
 
-      _ <- transBlock loopBlockId whileBody
-      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
+      _ <- transBlock loopBasicBlockId whileBody
+      modify' $ terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      modify' (setCurBlockId endBlockId)
+      modify' (setCurBasicBlockId endBasicBlockId)
   | Ast.ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
-      l <- gets blockId
-      modify' incBlockId
-      let condBlockId = "FL" ++ show l
-      l <- gets blockId
-      modify' incBlockId
-      let loopBlockId = "FL" ++ show l
-      l <- gets blockId
-      modify' incBlockId
-      let endBlockId = "FL" ++ show l
-      modify' incBlockId
+      lcond <- gets blockId
+      modify' incBasicBlockId
+      let condBasicBlockId = "FL" ++ show lcond
+      linc <- gets blockId
+      modify' incBasicBlockId
+      let loopBasicBlockId = "FL" ++ show linc
+      lend <- gets blockId
+      modify' incBasicBlockId
+      let endBasicBlockId = "FL" ++ show lend
+      modify' incBasicBlockId
 
       -- Add the initial statement to the block
       _ <- transStmt forInit
 
-      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
-      modify' (setCurBlockId condBlockId)
+      modify' $ terminateBlock Jump {jumpTarget = condBasicBlockId}
+      modify' (setCurBasicBlockId condBasicBlockId)
       transExp forCond
       t <- gets tmp
-      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBlockId = loopBlockId, condFalseBlockId = endBlockId}
+      modify' $ terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = loopBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
 
-      _ <- transBlock loopBlockId forBody
+      _ <- transBlock loopBasicBlockId forBody
 
       _ <- transStmt forUpdate
-      modify' $ terminateBlock Jump {jumpTarget = condBlockId}
+      modify' $ terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      modify' (setCurBlockId endBlockId)
+      modify' (setCurBasicBlockId endBasicBlockId)
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
 transBlock blockId Ast.Block {blockAnnot = scope, blockStmts} = do
-  modify' (setCurBlockId blockId)
-  modify' (stackEnv scope)
+  modify' (setCurBasicBlockId blockId)
+  modify' (\s -> s {curScopedBlockId = scope})
   mapM_ transStmt blockStmts
   modify' popEnv
 
@@ -403,31 +399,33 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
         currentLocalOffset = 0 -- Start at RBP, grow downward
       }
 
-  -- Push the function's environment (which should contain the arguments)
-  modify' (stackEnv blockAnnot)
+  -- Set the function's environment (which should contain the arguments)
+  modify' (\s -> s {curScopedBlockId = blockAnnot})
 
   -- Now allocate stack space for arguments (they should already be in the env)
   args' <-
     mapM
       ( \VarDef {varDefId, varDefTy} -> do
           _ <- allocateArgSlot varDefId varDefTy -- Add to stackOffsets
-          symb <- gets (lookup varDefId) -- Look up in environment
+          symb <- gets (lookupSymbol varDefId) -- Look up in environment
           case symb of
-            Just s@Env.Symbol {Env.symbolAlloc = Env.Argument} -> return s
+            Just s@SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Argument} -> return s
             _ -> error $ "Argument allocation error: " ++ varDefId
       )
       funArgs
 
+  symbolTable <- gets symbolTable
+
   -- Allocate stack space for locals
   let locals =
         filter
-          ( \Env.Symbol {Env.symbolAlloc} -> case symbolAlloc of
-              Env.Local -> True
+          ( \SymbolTable.Symbol {SymbolTable.symbolAlloc} -> case symbolAlloc of
+              SymbolTable.Local -> True
               _ -> False
           )
-          (Env.toList blockAnnot)
+          (SymbolTable.toList blockAnnot symbolTable)
 
-  mapM_ (\Env.Symbol {Env.symbolId, Env.symbolTy} -> allocateLocalSlot symbolId symbolTy) locals
+  mapM_ (\SymbolTable.Symbol {SymbolTable.symbolId, SymbolTable.symbolTy} -> allocateLocalSlot symbolId symbolTy) locals
 
   -- Rest of function translation...
   transBlock funId funBody
@@ -436,7 +434,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
   unless (null insts) $
     modify' (terminateBlock Return {retOperand = Nothing})
 
-  blockId <- gets curBlockId
+  blockId <- gets curBasicBlockId
   unless (blockId == "terminated_") $
     modify' (terminateBlock Return {retOperand = Nothing})
 
@@ -449,37 +447,39 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
 transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
 transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
 
-transProgram :: Ast.TypedProgram -> Mir.Types.Program
-transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} = do
-  let externFuns' = transExternFun <$> programExternFuns
-  let initialState =
-        TranslationState
-          { tmp = Temp {tempLabel = 0},
-            blockId = 0,
-            blocks = [],
-            envs = Env.pushEnv programAnnot (Env.emptyEnvStack "global"),
-            curBlockId = "global_entry",
-            currentInsts = [],
-            stackOffsets = mempty,
-            currentLocalOffset = 0,
-            currentArgOffset = 0,
-            varToTemp = Map.empty
-          }
+transProgram :: Ast.TypedProgram -> SymbolTable.SymbolTable -> Mir.Types.Program
+transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable =
+  do
+    let externFuns' = transExternFun <$> programExternFuns
+    let initialState =
+          TranslationState
+            { tmp = Temp {tempLabel = 0},
+              blockId = 0,
+              blocks = [],
+              symbolTable,
+              curBasicBlockId = "global_entry",
+              currentInsts = [],
+              stackOffsets = mempty,
+              currentLocalOffset = 0,
+              currentArgOffset = 0,
+              varToTemp = Map.empty,
+              curScopedBlockId = programAnnot
+            }
 
-  let (funs, st) =
-        runState
-          ( foldM
-              ( \acc fun -> do
-                  mirFun <- transFun fun
-                  return (acc ++ [mirFun])
-              )
-              []
-              programFuncs
-          )
-          initialState
+    let (funs, st) =
+          runState
+            ( foldM
+                ( \acc fun -> do
+                    mirFun <- transFun fun
+                    return (acc ++ [mirFun])
+                )
+                []
+                programFuncs
+            )
+            initialState
 
-  let mainFun' = case programMainFun of
-        Just fun -> Just (runState (transFun fun) st)
-        Nothing -> Nothing
+    let mainFun' = case programMainFun of
+          Just fun -> Just (runState (transFun fun) st)
+          Nothing -> Nothing
 
-  Mir.Types.Program {programFuns = funs, Mir.Types.programExternFuns = externFuns', Mir.Types.programMainFun = fst <$> mainFun'}
+    Mir.Types.Program {programFuns = funs, Mir.Types.programExternFuns = externFuns', Mir.Types.programMainFun = fst <$> mainFun'}

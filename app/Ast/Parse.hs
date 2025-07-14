@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module Ast.Parse (program) where
 
 import Ast.Types
@@ -7,7 +5,6 @@ import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Functor (($>))
 import Text.ParserCombinators.Parsec qualified as PC
 import TypeSystem
-import Prelude hiding (exp, id, lex)
 
 comment :: PC.Parser ()
 comment =
@@ -26,7 +23,7 @@ lex :: PC.Parser a -> PC.Parser a
 lex p = p <* sc
 
 keyword :: String -> PC.Parser String
-keyword kw = lex (PC.string kw)
+keyword kw = Ast.Parse.lex (PC.string kw)
 
 ifkw :: PC.Parser String
 ifkw = keyword "if"
@@ -44,7 +41,7 @@ returnkw :: PC.Parser String
 returnkw = keyword "return"
 
 symbol :: String -> PC.Parser String
-symbol sym = lex (PC.string sym)
+symbol sym = Ast.Parse.lex (PC.string sym)
 
 parens :: PC.Parser a -> PC.Parser a
 parens p = symbol "(" *> p <* symbol ")"
@@ -58,14 +55,14 @@ braces p = symbol "{" *> p <* symbol "}"
 commaSep :: PC.Parser a -> PC.Parser [a]
 commaSep p = PC.sepBy p (symbol ",")
 
-id :: PC.Parser Id
-id =
+identifier :: PC.Parser Id
+identifier =
   let isFirstChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ "_"
       isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
-   in lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
+   in Ast.Parse.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
 
 basicty :: PC.Parser Ty
-basicty = lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
+basicty = Ast.Parse.lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
   where
     parseInt = keyword "int" $> IntTy
     parseChar = keyword "char" $> CharTy
@@ -83,10 +80,10 @@ ty = do
 num :: PC.Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
-   in read <$> lex (PC.many1 (PC.satisfy isDigit))
+   in read <$> Ast.Parse.lex (PC.many1 (PC.satisfy isDigit))
 
 char :: PC.Parser Char
-char = lex $ do
+char = Ast.Parse.lex $ do
   _ <- PC.char '\''
   c <- PC.try (PC.char '\\' *> escapeChar) <|> PC.satisfy validChar
   _ <- PC.char '\''
@@ -103,8 +100,8 @@ char = lex $ do
           PC.char 't' $> '\t'
         ]
 
-exp :: PC.Parser RawExp
-exp = eqexp
+expression :: PC.Parser RawExp
+expression = eqexp
   where
     factor =
       PC.try callexp
@@ -121,16 +118,16 @@ exp = eqexp
           charValue <- char
           return Exp {expAnnot = (), expInner = CharExp {charValue}}
         idexp = do
-          idName <- id
+          idName <- identifier
           return Exp {expAnnot = (), expInner = IdExp {idName}}
-        parenexp = parens exp
+        parenexp = parens expression
         callexp = do
-          callId <- id
-          callArgs <- parens (commaSep exp)
+          callId <- identifier
+          callArgs <- parens (commaSep expression)
           return Exp {expAnnot = (), expInner = Call {callId, callArgs}}
         arraccess = do
-          arrId <- id
-          arrIndex <- brackets exp
+          arrId <- identifier
+          arrIndex <- brackets expression
           return Exp {expAnnot = (), expInner = ArrAccess {arrId, arrIndex}}
 
     unaryexp = do
@@ -194,14 +191,14 @@ exp = eqexp
 vardef :: PC.Parser VarDef
 vardef = do
   varDefTy <- ty
-  varDefId <- id
+  varDefId <- identifier
   return VarDef {varDefId, varDefTy}
 
 letstmt :: PC.Parser RawStmt
 letstmt = do
   letVarDef <- vardef
   _ <- symbol "="
-  letExp <- exp
+  letExp <- expression
   return $ LetStmt {letVarDef, letExp}
 
 letarrstmt :: PC.Parser RawStmt
@@ -209,38 +206,38 @@ letarrstmt = do
   letArrVarDef <- vardef
   letArrSize <- brackets num
   _ <- symbol "="
-  letArrElems <- braces (commaSep exp)
+  letArrElems <- braces (commaSep expression)
   return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems}
 
 assignstmt :: PC.Parser RawStmt
 assignstmt = do
-  assignId <- id
+  assignId <- identifier
   _ <- symbol "="
-  assignExp <- exp
+  assignExp <- expression
   return $ AssignStmt {assignId, assignExp}
 
 assignarrstmt :: PC.Parser RawStmt
 assignarrstmt = do
-  assignArrId <- id
-  assignArrIndex <- brackets exp
+  assignArrId <- identifier
+  assignArrIndex <- brackets expression
   _ <- symbol "="
-  assignArrExp <- exp
+  assignArrExp <- expression
   return $ AssignArrStmt {assignArrId, assignArrIndex, assignArrExp}
 
 retstmt :: PC.Parser RawStmt
 retstmt = do
   _ <- returnkw
-  returnExp <- optional exp
+  returnExp <- optional expression
   return $ ReturnStmt {returnExp}
 
 expstmt :: PC.Parser RawStmt
 expstmt = do
-  stmtExp <- exp
+  stmtExp <- expression
   return ExpStmt {stmtExp}
 
 semicolonStmt :: PC.Parser RawStmt
 semicolonStmt = do
-  stmt <-
+  parsedStatement <-
     PC.try letstmt
       <|> PC.try letarrstmt
       <|> PC.try retstmt
@@ -248,7 +245,7 @@ semicolonStmt = do
       <|> PC.try assignarrstmt
       <|> expstmt
   _ <- symbol ";"
-  return stmt
+  return parsedStatement
 
 stmt :: PC.Parser RawStmt
 stmt =
@@ -260,14 +257,14 @@ stmt =
   where
     ifstmt = do
       _ <- ifkw
-      ifCond <- parens exp
+      ifCond <- parens expression
       ifBody <- block
       ifElseBody <- optional (elsekw *> block)
       return $ IfStmt {ifCond, ifBody, ifElseBody}
 
     whilestmt = do
       _ <- whilekw
-      whileCond <- parens exp
+      whileCond <- parens expression
       whileBody <- block
       return WhileStmt {whileCond, whileBody}
 
@@ -291,7 +288,7 @@ block = do
 fun :: PC.Parser RawFun
 fun = do
   funRetTy <- ty
-  funId <- id
+  funId <- identifier
   funArgs <- parens (commaSep vardef)
   funBody <- block
   return Fun {funId, funArgs, funRetTy, funBody}
@@ -300,7 +297,7 @@ externfun :: PC.Parser RawExternFun
 externfun = do
   _ <- keyword "extern"
   externFunRetTy <- ty
-  externFunId <- id
+  externFunId <- identifier
   externFunArgs <- parens (commaSep vardef)
   _ <- symbol ";"
   return
@@ -320,10 +317,10 @@ program = do
   let programResult =
         foldl
           ( \acc f -> case f of
-              Left fun ->
-                case funId fun of
-                  "main" -> acc {programMainFun = Just fun}
-                  _ -> acc {programFuncs = programFuncs acc ++ [fun]}
+              Left topLevelFun ->
+                case funId topLevelFun of
+                  "main" -> acc {programMainFun = Just topLevelFun}
+                  _ -> acc {programFuncs = programFuncs acc ++ [topLevelFun]}
               Right externFun -> acc {programExternFuns = programExternFuns acc ++ [externFun]}
           )
           initialProgram

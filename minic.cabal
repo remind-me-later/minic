@@ -66,7 +66,7 @@ executable minic
                     Ast.Parse
                     Ast.Semant 
                     Ast.Types
-                    Env 
+                    SymbolTable 
                     Mir 
                     Mir.Translate
                     Mir.Types

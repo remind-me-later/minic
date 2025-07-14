@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
 module Mir.Allocation where
 
 import Data.List (sortOn)
@@ -151,11 +149,11 @@ transformTerminator :: AllocationResult -> Terminator -> Terminator
 transformTerminator _allocation terminator = case terminator of
   Return {retOperand} -> Return {retOperand = fmap (transformOperand _allocation) retOperand}
   Jump {jumpTarget} -> Jump {jumpTarget = jumpTarget} -- No transformation needed for Jump
-  CondJump {condOperand, condTrueBlockId, condFalseBlockId} ->
+  CondJump {condOperand, condTrueBasicBlockId, condFalseBasicBlockId} ->
     CondJump
       { condOperand = transformOperand _allocation condOperand,
-        condTrueBlockId = condTrueBlockId,
-        condFalseBlockId = condFalseBlockId
+        condTrueBasicBlockId = condTrueBasicBlockId,
+        condFalseBasicBlockId = condFalseBasicBlockId
       }
 
 transformOperand :: AllocationResult -> Operand -> Operand
