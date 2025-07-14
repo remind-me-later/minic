@@ -7,7 +7,7 @@ import Control.Monad.State (State, gets, modify', runState)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Mir.Types
-import SymbolTable qualified
+import SymbolTable
 import TypeSystem (BinOp (..), Id, Ty (..), sizeOf)
 
 data TranslationState = TranslationState
@@ -16,12 +16,12 @@ data TranslationState = TranslationState
     curBasicBlockId :: BasicBlockId,
     currentInsts :: [Inst],
     blocks :: [BasicBlock],
-    symbolTable :: SymbolTable.SymbolTable,
+    symbolTable :: SymbolTable,
     varToTemp :: Map.Map Id Temp,
     stackOffsets :: Map.Map Id Int,
     currentLocalOffset :: Int, -- For locals (negative from RBP)
     currentArgOffset :: Int, -- For arguments (positive from RBP)
-    curScopedBlockId :: SymbolTable.BlockId
+    curScopedBlockId :: BlockId
   }
 
 allocateLocalToTmp :: Id -> State TranslationState Temp
@@ -115,11 +115,11 @@ popBlocks ts = ts {blocks = []}
 
 popEnv :: TranslationState -> TranslationState
 popEnv ts@TranslationState {symbolTable, curScopedBlockId} =
-  ts {curScopedBlockId = SymbolTable.prevEnv curScopedBlockId symbolTable}
+  ts {curScopedBlockId = prevEnv curScopedBlockId symbolTable}
 
-lookupSymbol :: Id -> TranslationState -> Maybe SymbolTable.Symbol
-lookupSymbol identifier TranslationState {symbolTable, curScopedBlockId} =
-  SymbolTable.lookupSymbol identifier curScopedBlockId symbolTable
+lookupSymbolInState :: Id -> TranslationState -> Maybe Symbol
+lookupSymbolInState identifier TranslationState {symbolTable, curScopedBlockId} =
+  lookupSymbol identifier curScopedBlockId symbolTable
 
 transExp :: Ast.TypedExp -> State TranslationState ()
 transExp Ast.Exp {expAnnot = annot, expInner}
@@ -199,9 +199,9 @@ transExp Ast.Exp {expAnnot = annot, expInner}
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
   | Ast.TakeAddress {takeAddressId} <- expInner = do
       -- Take the address of a variable
-      symb <- gets (lookupSymbol takeAddressId)
+      symb <- gets (lookupSymbolInState takeAddressId)
       case symb of
-        Just SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Local} -> do
+        Just Symbol {symbolAlloc = Local} -> do
           offset <- getStackOffset takeAddressId
           case offset of
             Just off -> do
@@ -212,26 +212,26 @@ transExp Ast.Exp {expAnnot = annot, expInner}
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do
-  symb <- gets (lookupSymbol arrId)
+  symb <- gets (lookupSymbolInState arrId)
   baseOffset <- getStackOffset arrId
   case (symb, baseOffset) of
-    (Just SymbolTable.Symbol {SymbolTable.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
+    (Just Symbol {symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
       let elemSize = sizeOf arrTyElemTy
       return $ StackOperand (offset + idx * elemSize)
     _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId (TempOperand idxTemp) = do
-  symb <- gets (lookupSymbol arrId)
+  symb <- gets (lookupSymbolInState arrId)
   baseOffset <- getStackOffset arrId
   case (symb, baseOffset) of
-    (Just SymbolTable.Symbol {SymbolTable.symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
+    (Just Symbol {symbolTy = ArrTy {arrTyElemTy}}, Just offset) -> do
       let elemSize = sizeOf arrTyElemTy
       -- Create a computed address temp
       t <- gets tmp
       modify' incTmp
       modify' $
         addInstsToBlock
-          [ BinOp {instDst = TempOperand t, instBinop = TypeSystem.Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize},
-            BinOp {instDst = TempOperand t, instBinop = TypeSystem.Add, instLeft = TempOperand t, instRight = ConstInt offset}
+          [ BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize},
+            BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt offset}
           ]
       return $ TempOperand t -- This temp holds the computed stack offset
     _ -> error $ "Array access error for: " ++ arrId
@@ -246,14 +246,19 @@ transStmt stmt
   | Ast.LetStmt {letVarDef = Ast.VarDef {varDefId, varDefTy}, letExp} <- stmt = do
       -- If the variable is a scalar allocate it on a temporary register
       -- If it's an array, allocate it on the stack
-      symb <- gets (lookupSymbol varDefId)
+      symb <- gets (lookupSymbolInState varDefId)
       case symb of
-        Just SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Local, SymbolTable.symbolTy = TypeSystem.IntTy} -> do
-          transExp letExp
-          t <- gets tmp -- Get the temp containing the expression result
-          -- Treat variable as temp
-          dstt <- allocateLocalToTmp varDefId
-          modify' $ addInstsToBlock [Assign {instDst = TempOperand dstt, instSrc = TempOperand t}]
+        Just
+          Symbol
+            { symbolAlloc = Local,
+              symbolTy = IntTy,
+              addressTaken = False
+            } -> do
+            transExp letExp
+            t <- gets tmp -- Get the temp containing the expression result
+            -- Treat variable as temp
+            dstt <- allocateLocalToTmp varDefId
+            modify' $ addInstsToBlock [Assign {instDst = TempOperand dstt, instSrc = TempOperand t}]
         _ -> do
           -- Allocate on stack
           _ <- allocateLocalSlot varDefId varDefTy
@@ -419,9 +424,9 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
     mapM
       ( \VarDef {varDefId, varDefTy} -> do
           _ <- allocateArgSlot varDefId varDefTy -- Add to stackOffsets
-          symb <- gets (lookupSymbol varDefId) -- Look up in environment
+          symb <- gets (lookupSymbolInState varDefId) -- Look up in environment
           case symb of
-            Just s@SymbolTable.Symbol {SymbolTable.symbolAlloc = SymbolTable.Argument} -> return s
+            Just s@Symbol {symbolAlloc = Argument} -> return s
             _ -> error $ "Argument allocation error: " ++ varDefId
       )
       funArgs
@@ -431,13 +436,13 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
   -- Allocate stack space for locals
   let locals =
         filter
-          ( \SymbolTable.Symbol {SymbolTable.symbolAlloc} -> case symbolAlloc of
-              SymbolTable.Local -> True
+          ( \Symbol {symbolAlloc} -> case symbolAlloc of
+              Local -> True
               _ -> False
           )
-          (SymbolTable.toList blockAnnot symbolTable)
+          (toList blockAnnot symbolTable)
 
-  mapM_ (\SymbolTable.Symbol {SymbolTable.symbolId, SymbolTable.symbolTy} -> allocateLocalSlot symbolId symbolTy) locals
+  mapM_ (\Symbol {symbolId, symbolTy} -> allocateLocalSlot symbolId symbolTy) locals
 
   -- Rest of function translation...
   transBlock funId funBody
@@ -459,7 +464,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
 transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
 transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
 
-transProgram :: Ast.TypedProgram -> SymbolTable.SymbolTable -> Mir.Types.Program
+transProgram :: Ast.TypedProgram -> SymbolTable -> Mir.Types.Program
 transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable =
   do
     let externFuns' = transExternFun <$> programExternFuns

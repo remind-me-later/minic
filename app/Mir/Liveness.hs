@@ -38,9 +38,9 @@ instance Show LivenessInfo where
          in "Block "
               ++ bid
               ++ ": IN = {"
-              ++ unwords (map (("t" ++) . show) (Set.toList inSet))
+              ++ unwords (map show (Set.toList inSet))
               ++ "}, OUT = {"
-              ++ unwords (map (("t" ++) . show) (Set.toList outSet))
+              ++ unwords (map show (Set.toList outSet))
               ++ "}"
 
 -- Get all temporaries used (read) by an instruction
