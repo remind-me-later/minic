@@ -53,6 +53,14 @@ data Op
         memIndexScale :: Maybe (Reg, Int),
         memDisp :: Int
       }
+  | -- Variables in data section are accessed using RIP-relative addressing:
+    -- we acess the offsets by defining a label in the data section 'my_data_start'
+    -- and then using the label as an operand with rip relative addressing
+    -- for example:
+    -- lea my_data_start+offset(%rip), %rsi
+    Data
+      { dataOffset :: Int
+      }
   deriving (Eq)
 
 instance Show Op where
@@ -68,6 +76,7 @@ instance Show Op where
     "(" ++ show memBase ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
   show Mem {memBase, memIndexScale = Just (index, scale), memDisp} =
     show memDisp ++ "(" ++ show memBase ++ ", " ++ show index ++ ", " ++ show scale ++ ")"
+  show (Data offset) = "my_data_start+" ++ show offset ++ "(%rip)"
 
 data JmpCond
   = Jnz

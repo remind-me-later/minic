@@ -1,3 +1,6 @@
+.section .data
+my_data_start:
+
 .section .text
 .globl _start
 

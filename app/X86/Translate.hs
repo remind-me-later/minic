@@ -50,7 +50,9 @@ mainFunctionEpilogue =
 
 makeFileHeader :: [String] -> String
 makeFileHeader externs =
-  ".section .text\n"
+  ".section .data\n"
+    ++ "my_data_start:\n"
+    ++ "\n.section .text\n"
     ++ ".globl _start\n\n"
     ++ concatMap
       ( \e ->
@@ -101,6 +103,7 @@ translateOperand (Mir.ConstChar c) = Imm (fromIntegral (fromEnum c))
 translateOperand (Mir.RegOperand reg) = Reg (mirRegisterToX86 reg)
 translateOperand (Mir.StackOperand offset) = Mem {memBase = Rbp, memDisp = offset, memIndexScale = Nothing}
 translateOperand (Mir.TempOperand _) = error "Temporary variables should be handled by register allocation"
+translateOperand (Mir.DataOperand offset) = Data {dataOffset = offset}
 
 calculateFrameSize :: Mir.CFG -> Int
 calculateFrameSize cfg =

@@ -35,7 +35,7 @@ extern void print(char c);
 // }
 
 void main() {
-    char a = 'A';
+    static char a = 'A';
     char* ptr = &a;
     print(*ptr); 
     print('\n');

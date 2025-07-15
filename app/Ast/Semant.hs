@@ -37,9 +37,9 @@ addErrorInState :: String -> TypingState -> TypingState
 addErrorInState err ts@TypingState {errors} =
   ts {errors = err : errors}
 
-insertVarInState :: VarDef -> TypingState -> TypingState
-insertVarInState v ts@TypingState {symbolTable, currentBlock} =
-  ts {symbolTable = insertVar v SymbolTable.Auto currentBlock symbolTable}
+insertVarInState :: VarDef -> SymbolStorage -> TypingState -> TypingState
+insertVarInState v storage ts@TypingState {symbolTable, currentBlock} =
+  ts {symbolTable = insertVar v storage currentBlock symbolTable}
 
 insertArgInState :: VarDef -> TypingState -> TypingState
 insertArgInState v ts@TypingState {symbolTable, currentBlock} =
@@ -64,6 +64,12 @@ currentFunInState TypingState {curFun, symbolTable, currentBlock} =
 
 setCurrentFunInState :: Id -> TypingState -> TypingState
 setCurrentFunInState identifier ts = ts {curFun = Just identifier}
+
+storageSpecifierToSymbolStorage :: Maybe StorageSpecifier -> SymbolStorage
+storageSpecifierToSymbolStorage Nothing = SymbolTable.Auto
+storageSpecifierToSymbolStorage (Just TypeSystem.Auto) = SymbolTable.Auto
+storageSpecifierToSymbolStorage (Just TypeSystem.Static) = SymbolTable.Static
+storageSpecifierToSymbolStorage (Just TypeSystem.Extern) = SymbolTable.Extern
 
 typeBinOp :: BinOp -> TypedExp -> TypedExp -> State TypingState Ty
 typeBinOp op Exp {expAnnot = lty} Exp {expAnnot = rty}
@@ -240,7 +246,7 @@ typeStmt stmt
       when (expAnnot /= varDefTy) $
         modify' (addErrorInState ("Type mismatch in variable definition: expected " ++ show varDefTy ++ ", got " ++ show expAnnot))
 
-      modify' $ insertVarInState letVarDef
+      modify' $ insertVarInState letVarDef (storageSpecifierToSymbolStorage letStorage)
       return LetStmt {letVarDef, letExp = letExp', letStorage}
   | LetArrStmt
       { letArrVarDef = letArrVarDef@VarDef {varDefTy},
@@ -263,7 +269,7 @@ typeStmt stmt
       when (letArrSize /= length letArrElems) $
         modify' (addErrorInState ("Array size mismatch: expected " ++ show letArrSize ++ ", got " ++ show (length letArrElems)))
 
-      modify' $ insertVarInState arrDef
+      modify' $ insertVarInState arrDef (storageSpecifierToSymbolStorage letArrStorage)
       return LetArrStmt {letArrVarDef, letArrSize, letArrElems = letArrElems', letArrStorage}
   | AssignArrStmt
       { assignArrId,

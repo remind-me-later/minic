@@ -115,7 +115,11 @@ executeCommand cmd = case cmd of
       Right ast -> do
         typedResult <- typeCheckAst ast
         case typedResult of
-          Right typedAst -> print typedAst
+          Right (typedAst, symbolTable) -> do
+            putStrLn "Type checking successful. Typed AST:"
+            print typedAst
+            putStrLn "Symbol Table:"
+            print symbolTable
           Left err -> error err
       Left err -> error err
   ShowMir fileName -> do
