@@ -16,6 +16,8 @@ where
 import Control.Monad (forM_, unless, when)
 import Control.Monad.State (State, gets, modify', runState)
 import Mir.Types qualified as Mir
+import SymbolTable (Symbol (..), SymbolTable (..), dataList)
+import TypeSystem (sizeOf)
 import TypeSystem qualified (BinOp (..), UnaryOp (..))
 import X86.Types
 
@@ -48,10 +50,11 @@ mainFunctionEpilogue =
     Syscall -- exit the program
   ]
 
-makeFileHeader :: [String] -> String
-makeFileHeader externs =
+makeFileHeader :: SymbolTable -> [String] -> String
+makeFileHeader symbolTable externs =
   ".section .data\n"
     ++ "my_data_start:\n"
+    ++ statics
     ++ "\n.section .text\n"
     ++ ".globl _start\n\n"
     ++ concatMap
@@ -63,11 +66,29 @@ makeFileHeader externs =
             ++ ", @function\n"
       )
       externs
+  where
+    statics =
+      concatMap
+        ( \(identifier, Symbol {symbolTy}) ->
+            ".global "
+              ++ identifier
+              ++ "\n"
+              ++ ".type "
+              ++ identifier
+              ++ ", @object\n"
+              ++ identifier
+              ++ ":\n"
+              ++ ".zero "
+              ++ show (sizeOf symbolTy)
+              ++ "\n"
+        )
+        (dataList symbolTable)
 
 data TranslationState = TranslationState
   { assemblyCode :: [Inst],
     lastJmpCond :: Maybe JmpCond,
-    fileHeader :: String
+    fileHeader :: String,
+    symbolTable :: SymbolTable
   }
 
 instance Show TranslationState where
@@ -141,6 +162,7 @@ translateInst inst
           -- Need to go through a register for memory-to-memory moves
           emitAsmInst $ Mov {movSrc = srcOp, movDst = Reg Rax}
           emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+        (Data {}, _) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
         _ -> error "Invalid assignment operands"
   | Mir.BinOp {Mir.instDst, Mir.instBinop, Mir.instLeft, Mir.instRight} <- inst = do
       let dstOp = translateOperand instDst
@@ -298,21 +320,22 @@ translateFun Mir.Fun {Mir.funId, Mir.funCfg} = do
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {Mir.programFuns, Mir.programExternFuns, Mir.programMainFun} = do
-  modify' (\s -> s {fileHeader = makeFileHeader (Mir.externId <$> programExternFuns)})
+  modify' (\s -> s {fileHeader = makeFileHeader (symbolTable s) (Mir.externId <$> programExternFuns)})
 
   -- translate main function
   forM_ programMainFun translateMainFun
   -- translate functions
   mapM_ translateFun programFuns
 
-translateProgram :: Mir.Program -> String
-translateProgram program = tsToAssemblyCode finalState
+translateProgram :: Mir.Program -> SymbolTable -> String
+translateProgram program symbolTable = tsToAssemblyCode finalState
   where
     initialState =
       TranslationState
         { assemblyCode = [],
           lastJmpCond = Nothing,
-          fileHeader = ""
+          fileHeader = "",
+          symbolTable = symbolTable
         }
 
     (_, finalState) = runState (translateProgram' program) initialState

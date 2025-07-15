@@ -27,6 +27,7 @@ module SymbolTable
     getStaticOffset,
     allocateStaticSlot,
     resetFrameAllocation,
+    dataList,
   )
 where
 
@@ -174,41 +175,22 @@ lookupSymbol identifier blockId st@SymbolTable {blockEnvs} =
 
 insertVar :: VarDef -> SymbolStorage -> BlockId -> SymbolTable -> SymbolTable
 insertVar varDef alloc blockId st@SymbolTable {blockEnvs} =
-  case alloc of
-    Static -> case Map.lookup blockId blockEnvs of
-      Just env ->
-        let newSymbol =
-              Symbol
-                { symbolId = varDefId varDef,
-                  symbolTy = varDefTy varDef,
-                  symbolStorage = alloc,
-                  addressTaken = False,
-                  stackOffset = Nothing,
-                  tempRegister = Nothing,
-                  staticOffset = Nothing
-                }
-            newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
-            newBlockEnvs = Map.insert blockId newEnv blockEnvs
-            newDataEnvMap = Map.insert (varDefId varDef) newSymbol (envSymbols (dataEnv st))
-            newDataEnv = (dataEnv st) {envSymbols = newDataEnvMap}
-         in st {blockEnvs = newBlockEnvs, dataEnv = newDataEnv}
-      Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
-    _ -> case Map.lookup blockId blockEnvs of
-      Just env ->
-        let newSymbol =
-              Symbol
-                { symbolId = varDefId varDef,
-                  symbolTy = varDefTy varDef,
-                  symbolStorage = alloc,
-                  addressTaken = False,
-                  stackOffset = Nothing,
-                  tempRegister = Nothing,
-                  staticOffset = Nothing
-                }
-            newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
-            newBlockEnvs = Map.insert blockId newEnv blockEnvs
-         in st {blockEnvs = newBlockEnvs}
-      Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
+  case Map.lookup blockId blockEnvs of
+    Just env ->
+      let newSymbol =
+            Symbol
+              { symbolId = varDefId varDef,
+                symbolTy = varDefTy varDef,
+                symbolStorage = alloc,
+                addressTaken = False,
+                stackOffset = Nothing,
+                tempRegister = Nothing,
+                staticOffset = Nothing
+              }
+          newEnv = env {envSymbols = Map.insert (varDefId varDef) newSymbol (envSymbols env)}
+          newBlockEnvs = Map.insert blockId newEnv blockEnvs
+       in st {blockEnvs = newBlockEnvs}
+    Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
 
 insertArg :: VarDef -> BlockId -> SymbolTable -> SymbolTable
 insertArg varDef blockId st@SymbolTable {blockEnvs} =
@@ -240,6 +222,10 @@ toList blockId SymbolTable {blockEnvs} =
   case Map.lookup blockId blockEnvs of
     Just env -> Map.elems (envSymbols env)
     Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
+
+dataList :: SymbolTable -> [(Id, Symbol)]
+dataList SymbolTable {dataEnv} =
+  Map.toList (envSymbols dataEnv)
 
 setAddressTaken :: Id -> BlockId -> SymbolTable -> SymbolTable
 setAddressTaken identifier blockId st@SymbolTable {blockEnvs} =
@@ -303,7 +289,7 @@ allocateTempRegister identifier blockId st@SymbolTable {blockEnvs, nextTempId} =
     Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
 
 allocateStaticSlot :: Id -> BlockId -> SymbolTable -> SymbolTable
-allocateStaticSlot identifier blockId st@SymbolTable {blockEnvs, staticDataSize} =
+allocateStaticSlot identifier blockId st@SymbolTable {blockEnvs, staticDataSize, dataEnv} =
   case Map.lookup blockId blockEnvs of
     Just env ->
       case Map.lookup identifier (envSymbols env) of
@@ -313,7 +299,9 @@ allocateStaticSlot identifier blockId st@SymbolTable {blockEnvs, staticDataSize}
               updatedSymbols = Map.insert identifier updatedSymbol (envSymbols env)
               updatedEnv = env {envSymbols = updatedSymbols}
               updatedBlockEnvs = Map.insert blockId updatedEnv blockEnvs
-           in st {blockEnvs = updatedBlockEnvs, staticDataSize = staticDataSize + size}
+              newDataEnvMap = Map.insert identifier updatedSymbol (envSymbols dataEnv)
+              newDataEnv = dataEnv {envSymbols = newDataEnvMap}
+           in st {blockEnvs = updatedBlockEnvs, staticDataSize = staticDataSize + size, dataEnv = newDataEnv}
         Nothing -> error $ "Symbol with ID " ++ show identifier ++ " not found in block " ++ show blockId
     Nothing -> error $ "Block with ID " ++ show blockId ++ " not found in symbol table."
 

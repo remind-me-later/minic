@@ -248,9 +248,7 @@ transStmt stmt
             modify' $ addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
         Just
           Symbol
-            { symbolStorage = Static,
-              symbolTy = IntTy,
-              addressTaken = False
+            { symbolStorage = Static
             } -> do
             transExp letExp
             t <- gets tmp -- Get the temp containing the expression result
@@ -432,6 +430,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
   symbolTable' <- gets symbolTable
 
   -- Allocate stack space for locals
+  -- FIXME: we already pass the symbol table to the x86 translator so this is useless
   let locals =
         filter
           ( \Symbol {symbolStorage} -> case symbolStorage of
@@ -439,8 +438,6 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
               _ -> False
           )
           (toList blockId symbolTable')
-
-  mapM_ (\Symbol {symbolId} -> modify' $ \s -> s {symbolTable = allocateStackSlot symbolId blockId Auto (symbolTable s)}) locals
 
   -- Rest of function translation...
   transBlock funId funBody
@@ -462,8 +459,8 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
 transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
 transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
 
-transProgram :: Ast.TypedProgram -> SymbolTable -> Mir.Types.Program
-transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable =
+transProgram :: Ast.TypedProgram -> SymbolTable -> (Mir.Types.Program, SymbolTable)
+transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable' =
   do
     let externFuns' = transExternFun <$> programExternFuns
     let initialState =
@@ -471,7 +468,7 @@ transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFun
             { tmp = Temp {tempLabel = 0},
               blockId = 0,
               blocks = [],
-              symbolTable,
+              symbolTable = symbolTable',
               curBasicBlockId = "global_entry",
               currentInsts = [],
               curScopedBlockId = programAnnot
@@ -493,4 +490,12 @@ transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFun
           Just fun -> Just (runState (transFun fun) st)
           Nothing -> Nothing
 
-    Mir.Types.Program {programFuns = funs, Mir.Types.programExternFuns = externFuns', Mir.Types.programMainFun = fst <$> mainFun'}
+    ( Mir.Types.Program
+        { programFuns = funs,
+          Mir.Types.programExternFuns = externFuns',
+          Mir.Types.programMainFun = fst <$> mainFun'
+        },
+      case mainFun' of
+        Just (_, st') -> symbolTable st'
+        Nothing -> symbolTable st
+      )

@@ -125,12 +125,16 @@ executeCommand cmd = case cmd of
   ShowMir fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> print mirProgram
+      Right (mirProgram, symbolTable) -> do
+        putStrLn "MIR Program:"
+        print mirProgram
+        putStrLn "Symbol Table:"
+        print symbolTable
       Left err -> error err
   ShowMirLive fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, _symbolTable) -> do
         let livenessInfo = Liveness.analyzeProgramLiveness mirProgram
         print mirProgram
         putStrLn "Liveness Information:"
@@ -139,7 +143,7 @@ executeCommand cmd = case cmd of
   ShowMirColor fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, _symbolTable) -> do
         let allocationResult = Allocation.allocateProgram mirProgram
         let livenessInfo = Liveness.analyzeProgramLiveness mirProgram
         print mirProgram
@@ -151,7 +155,7 @@ executeCommand cmd = case cmd of
   ShowMirOptimized fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, _symbolTable) -> do
         let optimizedProgram = Mir.CopyPropagation.optimizeProgram mirProgram
         print optimizedProgram
       Left err -> error err
@@ -163,7 +167,7 @@ executeCommand cmd = case cmd of
   ShowMirInterference fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, _symbolTable) -> do
         print mirProgram
         let interferenceGraph = Interference.programInterferenceGraph mirProgram
         putStrLn "Interference Graph:"
@@ -172,30 +176,29 @@ executeCommand cmd = case cmd of
   ShowX86 fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, symbolTable) -> do
         let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
         let allocationResult = Allocation.allocateProgram optMirProgram
-        let x86Program = X86.Translate.translateProgram allocationResult
+        let x86Program = X86.Translate.translateProgram allocationResult symbolTable
         putStrLn x86Program
       Left err -> error err
   X86ToFile fileName outFile -> do
     processedAst <- processToMir fileName
     case processedAst of
-      Right mirProgram -> do
+      Right (mirProgram, symbolTable) -> do
         let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
         let allocationResult = Allocation.allocateProgram optMirProgram
-        let x86Program = X86.Translate.translateProgram allocationResult
+        let x86Program = X86.Translate.translateProgram allocationResult symbolTable
         writeFile outFile x86Program
       Left err -> error err
 
--- Helper function to reduce repetition
-processToMir :: String -> IO (Either String Mir.Types.Program)
+processToMir :: String -> IO (Either String (Mir.Types.Program, SymbolTable.SymbolTable))
 processToMir fileName = do
   astResult <- parseFile fileName
   case astResult of
     Right ast -> do
       typedResult <- typeCheckAst ast
       case typedResult of
-        Right (typedAst, symbolTable) -> return $ Right $ Mir.Translate.transProgram typedAst symbolTable
+        Right (typedAst, symbolTable) -> return $ Right (Mir.Translate.transProgram typedAst symbolTable)
         Left err -> return $ Left err
     Left err -> return $ Left err

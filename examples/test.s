@@ -1,5 +1,9 @@
 .section .data
 my_data_start:
+.global a
+.type a, @object
+a:
+.zero 1
 
 .section .text
 .globl _start
@@ -8,13 +12,12 @@ my_data_start:
 .type print, @function
 _start:
 	movq %rsp, %rbp
-	subq $18, %rsp
+	subq $8, %rsp
 	movq $65, %r8
-	movq $65, %rax
-	movq %rax, -10(%rbp)
-	movq -10(%rbp), %r8
-	movq %r8, -18(%rbp)
-	movq -18(%rbp), %r8
+	movq $65, my_data_start+0(%rip)
+	movq my_data_start+0(%rip), %r8
+	movq %r8, -8(%rbp)
+	movq -8(%rbp), %r8
 	movq %r8, %rax
 	leaq (%rax), %rax
 	movq %rax, %r8
