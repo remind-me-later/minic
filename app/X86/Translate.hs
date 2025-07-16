@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module X86.Translate
   ( functionPrologue,
     functionEpilogue,
@@ -13,8 +15,9 @@ module X86.Translate
   )
 where
 
+import Control.Lens
 import Control.Monad (forM_, unless, when)
-import Control.Monad.State (State, gets, modify', runState)
+import Control.Monad.State (State, runState)
 import Mir.Types qualified as Mir
 import SymbolTable (Symbol (..), SymbolTable (..), dataList, listExternFunctions)
 import TypeSystem (sizeOf)
@@ -90,26 +93,27 @@ makeFileHeader symbolTable =
     externs = map fst (listExternFunctions symbolTable)
 
 data TranslationState = TranslationState
-  { assemblyCode :: [Inst],
-    lastJmpCond :: Maybe JmpCond,
-    fileHeader :: String,
-    symbolTable :: SymbolTable
+  { _assemblyCode :: [Inst],
+    _lastJmpCond :: Maybe JmpCond,
+    _fileHeader :: String,
+    _symbolTable :: SymbolTable
   }
 
+makeLenses ''TranslationState
+
 instance Show TranslationState where
-  show TranslationState {assemblyCode, lastJmpCond, fileHeader} =
-    fileHeader
-      ++ concatMap (\inst -> show inst ++ "\n") assemblyCode
-      ++ case lastJmpCond of
+  show ts =
+    ts ^. fileHeader
+      ++ concatMap (\inst -> show inst ++ "\n") (ts ^. assemblyCode)
+      ++ case ts ^. lastJmpCond of
         Just cond -> "Last jump condition: " ++ show cond ++ "\n"
         Nothing -> "No last jump condition\n"
 
 changeFlagOp :: JmpCond -> State TranslationState ()
-changeFlagOp cond = modify' (\s -> s {lastJmpCond = Just cond})
+changeFlagOp cond = lastJmpCond .= Just cond
 
 emitAsmInst :: Inst -> State TranslationState ()
-emitAsmInst code =
-  modify' (\s@TranslationState {assemblyCode} -> s {assemblyCode = assemblyCode ++ [code]})
+emitAsmInst code = assemblyCode %= (++ [code])
 
 -- Convert MIR register to X86 register
 mirRegisterToX86 :: Mir.Register -> Reg
@@ -153,7 +157,7 @@ loadOperandToReg operand targetReg = do
   let src = translateOperand operand
   case src of
     Reg srcReg | srcReg == targetReg -> return () -- Already in target register
-    _ -> emitAsmInst $ Mov {movSrc = src, movDst = Reg targetReg}
+    _ -> emitAsmInst Mov {movSrc = src, movDst = Reg targetReg}
 
 translateInst :: Mir.Inst -> State TranslationState ()
 translateInst inst
@@ -161,13 +165,13 @@ translateInst inst
       let dstOp = translateOperand instDst
       let srcOp = translateOperand instSrc
       case (dstOp, srcOp) of
-        (Reg {}, _) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
-        (Mem {}, Reg {}) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
+        (Reg {}, _) -> emitAsmInst Mov {movSrc = srcOp, movDst = dstOp}
+        (Mem {}, Reg {}) -> emitAsmInst Mov {movSrc = srcOp, movDst = dstOp}
         (Mem {}, _) -> do
           -- Need to go through a register for memory-to-memory moves
-          emitAsmInst $ Mov {movSrc = srcOp, movDst = Reg Rax}
-          emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
-        (Data {}, _) -> emitAsmInst $ Mov {movSrc = srcOp, movDst = dstOp}
+          emitAsmInst Mov {movSrc = srcOp, movDst = Reg Rax}
+          emitAsmInst Mov {movSrc = Reg Rax, movDst = dstOp}
+        (Data {}, _) -> emitAsmInst Mov {movSrc = srcOp, movDst = dstOp}
         _ -> error "Invalid assignment operands"
   | Mir.BinOp {Mir.instDst, Mir.instBinop, Mir.instLeft, Mir.instRight} <- inst = do
       let dstOp = translateOperand instDst
@@ -229,14 +233,14 @@ translateInst inst
               emitAsmInst Idiv {idivSrc = Reg Rbx}
             _ -> emitAsmInst Idiv {idivSrc = rightOp}
 
-          emitAsmInst $ Mov {movSrc = Reg Rdx, movDst = Reg Rax} -- Move remainder to result
+          emitAsmInst Mov {movSrc = Reg Rdx, movDst = Reg Rax} -- Move remainder to result
           changeFlagOp Jnz
 
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
-        Reg {} -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
-        _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+        Reg {} -> emitAsmInst Mov {movSrc = Reg Rax, movDst = dstOp}
+        _ -> emitAsmInst Mov {movSrc = Reg Rax, movDst = dstOp}
   | Mir.UnaryOp {Mir.instDst, Mir.instUnop, Mir.instSrc} <- inst = do
       let dstOp = translateOperand instDst
       loadOperandToReg instSrc Rax
@@ -250,29 +254,28 @@ translateInst inst
           changeFlagOp Jz
         TypeSystem.UnaryPtrDeref -> do
           -- assume pointer address is in Rax and load with lea
-          emitAsmInst $ Lea {leaDst = Reg Rax, leaSrc = Mem {memBase = Rax, memIndexScale = Nothing, memDisp = 0}}
+          emitAsmInst Lea {leaDst = Reg Rax, leaSrc = Mem {memBase = Rax, memIndexScale = Nothing, memDisp = 0}}
           changeFlagOp Jnz
 
       -- Store result to destination
       case dstOp of
         Reg dstReg | dstReg == Rax -> return () -- Already in place
-        _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = dstOp}
+        _ -> emitAsmInst Mov {movSrc = Reg Rax, movDst = dstOp}
   | Mir.Call {Mir.callFunId, Mir.callArgCount, Mir.callRet} <- inst = do
-      emitAsmInst $ Call {callName = callFunId}
+      emitAsmInst Call {callName = callFunId}
       -- Remove arguments from the stack (using stack calling convention)
       when (callArgCount > 0) $ do
         let stackOffset = 8 * callArgCount -- Each argument is pushed onto the stack
-        emitAsmInst $ Add {addSrc = Imm stackOffset, addDst = Reg Rsp} -- Clean up stack after call
+        emitAsmInst Add {addSrc = Imm stackOffset, addDst = Reg Rsp} -- Clean up stack after call
       case callRet of
         Just retOperand -> do
           let retOp = translateOperand retOperand
           case retOp of
             Reg retReg | retReg == Rax -> return () -- Already in place
-            _ -> emitAsmInst $ Mov {movSrc = Reg Rax, movDst = retOp}
+            _ -> emitAsmInst Mov {movSrc = Reg Rax, movDst = retOp}
         Nothing -> return ()
-  | Mir.Param {Mir.paramOperand} <- inst = do
-      let paramOp = translateOperand paramOperand
-      emitAsmInst $ Push {pushOp = paramOp}
+  | Mir.Param {Mir.paramOperand} <- inst =
+      emitAsmInst Push {pushOp = translateOperand paramOperand}
 
 translateTerminator :: Mir.Terminator -> State TranslationState ()
 translateTerminator terminator
@@ -283,14 +286,14 @@ translateTerminator terminator
           return ()
         Nothing -> return ()
       mapM_ emitAsmInst functionEpilogue
-  | Mir.Jump {Mir.jumpTarget} <- terminator = emitAsmInst $ Jmp {jmpLabel = jumpTarget}
+  | Mir.Jump {Mir.jumpTarget} <- terminator = emitAsmInst Jmp {jmpLabel = jumpTarget}
   | Mir.CondJump {Mir.condTrueBasicBlockId, Mir.condFalseBasicBlockId} <- terminator = do
-      lastJmpCond <- gets lastJmpCond
-      jmpInstruction <- case lastJmpCond of
+      lastJmpCond' <- use lastJmpCond
+      jmpInstruction <- case lastJmpCond' of
         Just condType -> return $ JmpCond {jmpCond = condType, jmpCondLabel = condTrueBasicBlockId}
         Nothing -> error "No flag changing operation before conditional jump"
       emitAsmInst jmpInstruction
-      emitAsmInst $ Jmp {jmpLabel = condFalseBasicBlockId}
+      emitAsmInst Jmp {jmpLabel = condFalseBasicBlockId}
 
 translateBasicBlock :: Bool -> Bool -> Mir.BasicBlock -> State TranslationState ()
 translateBasicBlock isEntryPoint isMain Mir.BasicBlock {Mir.cfgBasicBlockId, Mir.blockInsts, Mir.blockTerminator} = do
@@ -311,39 +314,35 @@ translateCfg isMain Mir.CFG {Mir.cfgBlocks = entryBlock : rest} = do
 translateMainFun :: Mir.Fun -> State TranslationState ()
 translateMainFun Mir.Fun {Mir.funCfg} = do
   mapM_ emitAsmInst (mainFunctionPrologue (calculateFrameSize funCfg))
-
   translateCfg True funCfg
-
   mapM_ emitAsmInst mainFunctionEpilogue
 
 translateFun :: Mir.Fun -> State TranslationState ()
 translateFun Mir.Fun {Mir.funId, Mir.funCfg} = do
   mapM_ emitAsmInst (functionPrologue funId (calculateFrameSize funCfg))
-
-  -- No need to calculate offsets - they're in the StackOperands
   translateCfg False funCfg
 
 translateProgram' :: Mir.Program -> State TranslationState ()
 translateProgram' Mir.Program {Mir.programFuns, Mir.programMainFun} = do
-  modify' (\s -> s {fileHeader = makeFileHeader (symbolTable s)})
+  st <- use symbolTable
+  fileHeader .= makeFileHeader st
   -- translate main function
   forM_ programMainFun translateMainFun
   -- translate functions
   mapM_ translateFun programFuns
 
 translateProgram :: Mir.Program -> SymbolTable -> String
-translateProgram program symbolTable = tsToAssemblyCode finalState
+translateProgram program st = tsToAssemblyCode finalState
   where
     initialState =
       TranslationState
-        { assemblyCode = [],
-          lastJmpCond = Nothing,
-          fileHeader = "",
-          symbolTable = symbolTable
+        { _assemblyCode = [],
+          _lastJmpCond = Nothing,
+          _fileHeader = "",
+          _symbolTable = st
         }
 
     (_, finalState) = runState (translateProgram' program) initialState
 
     tsToAssemblyCode :: TranslationState -> String
-    tsToAssemblyCode TranslationState {assemblyCode, fileHeader} =
-      fileHeader ++ concatMap (\inst -> show inst ++ "\n") assemblyCode
+    tsToAssemblyCode ts = ts ^. fileHeader ++ concatMap (\inst -> show inst ++ "\n") (ts ^. assemblyCode)

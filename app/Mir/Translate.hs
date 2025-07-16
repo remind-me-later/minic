@@ -85,11 +85,13 @@ popEnv = do
   curBlock <- use curScopedBlockId
   curScopedBlockId .= prevEnv curBlock st
 
-lookupSymbolInState :: Id -> State TranslationState (Maybe Symbol)
+lookupSymbolInState :: Id -> State TranslationState Symbol
 lookupSymbolInState identifier = do
   st <- use symbolTable
   blockId' <- use curScopedBlockId
-  return $ lookupSymbol identifier blockId' st
+  case lookupSymbol identifier blockId' st of
+    Just symb -> return symb
+    Nothing -> error $ "Symbol " ++ identifier ++ " not found in the symbol table"
 
 transExp :: TypedExp -> State TranslationState ()
 transExp Exp {_expAnnot = annot, _expInner}
@@ -169,12 +171,12 @@ transExp Exp {_expAnnot = annot, _expInner}
   | TakeAddress {takeAddressId} <- _expInner = do
       symb <- lookupSymbolInState takeAddressId
       case symb of
-        Just ArgSymbol {_argSymbolStorage} -> do
+        ArgSymbol {_argSymbolStorage} -> do
           case _argSymbolStorage of
             ArgNormal offset -> do
               t <- use tmp
               addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand offset}]
-        Just VarSymbol {_varSymbolStorage} -> do
+        VarSymbol {_varSymbolStorage} -> do
           case _varSymbolStorage of
             Nothing -> error $ "Take address error for variable: " ++ takeAddressId
             Just (VarStatic offset) -> do
@@ -185,57 +187,46 @@ transExp Exp {_expAnnot = annot, _expInner}
               addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand offset}]
             Just (VarAutoTemp tempId) -> do
               error $ "Take address error for temporary variable: " ++ takeAddressId ++ " with tempId: " ++ show tempId
-        Just FunSymbol {} -> error $ "Take address error for function: " ++ takeAddressId
-        Nothing -> error $ "Take address error for undefined symbol: " ++ takeAddressId
+        FunSymbol {} -> error $ "Take address error for function: " ++ takeAddressId
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do
-  blockId' <- use curScopedBlockId
-  st <- use symbolTable
-  let symb = lookupSymbol arrId blockId' st
+  symb <- lookupSymbolInState arrId
   case symb of
-    -- Just Symbol {_symbolTy = ArrTy {arrTyElemTy}} -> do
-    --   case getStackOffset arrId blockId' st of
-    --     Just offset -> do
-    --       let elemSize = sizeOf arrTyElemTy
-    --       return $ StackOperand (offset + idx * elemSize)
-    --     Nothing -> error $ "Array " ++ arrId ++ " not allocated on stack"
-    Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
       let elemSize = sizeOf arrTyElemTy
       return $ StackOperand (varSymbolStorageStackOffset + idx * elemSize)
-    Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
       let elemSize = sizeOf arrTyElemTy
       return $ DataOperand (varSymbolStorageStaticOffset + idx * elemSize)
-    Just VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
       error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
-    Just FunSymbol {} -> error $ "Array access error for function: " ++ arrId
-    Just ArgSymbol {} -> do
+    FunSymbol {} -> error $ "Array access error for function: " ++ arrId
+    ArgSymbol {} -> do
       -- unsupported
       error $ "Array access for argument: " ++ arrId ++ " is not supported"
     _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId (TempOperand idxTemp) = do
-  blockId' <- use curScopedBlockId
-  st <- use symbolTable
-  let symb = lookupSymbol arrId blockId' st
+  symb <- lookupSymbolInState arrId
   case symb of
-    Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
       let elemSize = sizeOf arrTyElemTy
       t <- use tmp
       incTmp
       addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
       addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStackOffset}]
       return $ TempOperand t
-    Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
       let elemSize = sizeOf arrTyElemTy
       t <- use tmp
       incTmp
       addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
       addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStaticOffset}]
       return $ TempOperand t
-    Just VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
+    VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
       error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
-    Just FunSymbol {} -> error $ "Array access error for function: " ++ arrId
-    Just ArgSymbol {} -> do
+    FunSymbol {} -> error $ "Array access error for function: " ++ arrId
+    ArgSymbol {} -> do
       -- unsupported
       error $ "Array access for argument: " ++ arrId ++ " is not supported"
     _ -> error $ "Array access error for: " ++ arrId
@@ -246,27 +237,25 @@ transStmt stmt
   | ExpStmt {stmtExp} <- stmt = transExp stmtExp
   | LetStmt {letVarDef = VarDef {_varDefId}, letExp} <- stmt = do
       blockId' <- use curScopedBlockId
-      st <- use symbolTable
-      let symb = lookupSymbol _varDefId blockId' st
+      symb <- lookupSymbolInState _varDefId
       case symb of
-        Just VarSymbol {_varAddressTaken = False, _varSymbolTy = IntTy} -> do
+        VarSymbol {_varAddressTaken = False, _varSymbolTy = IntTy} -> do
           transExp letExp
           t <- use tmp
           symbolTable %= allocateTempRegister _varDefId blockId'
           stackOp <- idToStackOperand _varDefId
           addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-        Just VarSymbol {} -> do
+        VarSymbol {} -> do
           transExp letExp
           t <- use tmp
           symbolTable %= allocateStaticSlot _varDefId blockId'
           stackOp <- idToStackOperand _varDefId
           addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-        Just FunSymbol {} -> do
+        FunSymbol {} -> do
           error $ "Let statement error for function: " ++ _varDefId
-        Just ArgSymbol {} -> do
+        ArgSymbol {} -> do
           -- unsupported
           error $ "Let statement for argument: " ++ _varDefId ++ " is not supported"
-        Nothing -> error $ "Let statement error for undefined symbol: " ++ _varDefId
   | AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- use tmp
