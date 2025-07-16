@@ -20,7 +20,7 @@ import SymbolTable qualified
 import TypeSystem
 
 newtype Temp
-  = Temp {tempLabel :: Int}
+  = Temp {_tempLabel :: Int}
   deriving (Eq, Ord)
 
 incTempLabel :: Temp -> Temp

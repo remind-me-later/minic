@@ -76,6 +76,8 @@ executable minic
                     Mir.Interference
                     Mir.Allocation
                     Mir.CopyPropagation
+                    Mir.Lenses
+                    Mir.Recursion
                     X86
                     X86.Translate
                     X86.Types

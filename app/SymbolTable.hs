@@ -263,7 +263,7 @@ allocateStackSlot identifier blockId storage st =
             Auto ->
               let newOffset = st ^. currentLocalOffset - size
                in (newOffset, st & currentLocalOffset .~ newOffset)
-            _ -> (0, st)
+            _ -> error $ "Unsupported storage type for stack allocation: " ++ show storage
        in st' & blockEnvs . ix blockId . envSymbolMap . ix identifier . stackOffset ?~ offset
     Nothing -> error $ "Symbol " ++ identifier ++ " not found in block " ++ show blockId
 
