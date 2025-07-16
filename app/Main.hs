@@ -5,16 +5,16 @@ module Main where
 import Ast.Parse qualified
 import Ast.Semant qualified
 import Ast.Types qualified
+import CompilerPipeline
 import Data.Map qualified as Map
-import Mir qualified as Mir.CopyPropagation
 import Mir.Allocation qualified as Allocation
 import Mir.Interference qualified as Interference
 import Mir.Liveness qualified as Liveness
 import Mir.Translate qualified
 import Mir.Types qualified
 import Options.Applicative
+import Pipeline
 import SymbolTable qualified
-import X86.Translate qualified
 
 data Command
   = ShowAst String
@@ -31,7 +31,6 @@ data Command
 newtype Options = Options
   {optCommand :: Command}
 
--- Parser for commands
 commandParser :: Parser Command
 commandParser =
   subparser
@@ -87,7 +86,6 @@ main = do
   options <- execParser opts
   executeCommand $ optCommand options
 
--- Extract common parsing logic
 parseFile :: String -> IO (Either String Ast.Types.RawProgram)
 parseFile fileName = do
   contents <- readFile fileName
@@ -101,45 +99,38 @@ typeCheckAst ast = pure $ case Ast.Semant.typeProgram ast of
   Right table -> Right table
   Left errs -> Left $ "Type checking failed: " ++ show errs
 
--- Execute commands with shared logic
 executeCommand :: Command -> IO ()
 executeCommand cmd = case cmd of
   ShowAst fileName -> do
-    result <- parseFile fileName
-    case result of
-      Right ast -> print ast
-      Left err -> error err
+    ast <- runPipelineWithError astPipeline fileName
+    print ast
   ShowSemant fileName -> do
-    result <- parseFile fileName
-    case result of
-      Right ast -> do
-        typedResult <- typeCheckAst ast
-        case typedResult of
-          Right (typedAst, symbolTable) -> do
-            putStrLn "Type checking successful. Typed AST:"
-            print typedAst
-            putStrLn "Symbol Table:"
-            print symbolTable
-          Left err -> error err
-      Left err -> error err
+    (typedAst, symbolTable) <- runPipelineWithError semantPipeline fileName
+    putStrLn "Type checking successful. Typed AST:"
+    print typedAst
+    putStrLn "Symbol Table:"
+    print symbolTable
   ShowMir fileName -> do
-    processedAst <- processToMir fileName
-    case processedAst of
-      Right (mirProgram, symbolTable) -> do
-        putStrLn "MIR Program:"
-        print mirProgram
-        putStrLn "Symbol Table:"
-        print symbolTable
-      Left err -> error err
+    (mirProgram, symbolTable) <- runPipelineWithError mirPipeline fileName
+    putStrLn "MIR Program:"
+    print mirProgram
+    putStrLn "Symbol Table:"
+    print symbolTable
+  ShowMirOptimized fileName -> do
+    optimizedProgram <- runPipelineWithError (extractFirst optimizedMirPipeline) fileName
+    print optimizedProgram
+  ShowX86 fileName -> do
+    x86Program <- runPipelineWithError x86Pipeline fileName
+    putStrLn x86Program
+  X86ToFile fileName outFile -> do
+    x86Program <- runPipelineWithError x86Pipeline fileName
+    writeFile outFile x86Program
   ShowMirLive fileName -> do
-    processedAst <- processToMir fileName
-    case processedAst of
-      Right (mirProgram, _symbolTable) -> do
-        let livenessInfo = Liveness.analyzeProgramLiveness mirProgram
-        print mirProgram
-        putStrLn "Liveness Information:"
-        print livenessInfo
-      Left err -> error err
+    mirProgram <- runPipelineWithError (extractFirst mirPipeline) fileName
+    let livenessInfo = Liveness.analyzeProgramLiveness mirProgram
+    print mirProgram
+    putStrLn "Liveness Information:"
+    print livenessInfo
   ShowMirColor fileName -> do
     processedAst <- processToMir fileName
     case processedAst of
@@ -151,13 +142,6 @@ executeCommand cmd = case cmd of
         print livenessInfo
         putStrLn "Allocation Result:"
         print allocationResult
-      Left err -> error err
-  ShowMirOptimized fileName -> do
-    processedAst <- processToMir fileName
-    case processedAst of
-      Right (mirProgram, _symbolTable) -> do
-        let optimizedProgram = Mir.CopyPropagation.optimizeProgram mirProgram
-        print optimizedProgram
       Left err -> error err
   MirToFile fileName outFile -> do
     processedAst <- processToMir fileName
@@ -172,24 +156,6 @@ executeCommand cmd = case cmd of
         let interferenceGraph = Interference.programInterferenceGraph mirProgram
         putStrLn "Interference Graph:"
         mapM_ print (Map.toList interferenceGraph)
-      Left err -> error err
-  ShowX86 fileName -> do
-    processedAst <- processToMir fileName
-    case processedAst of
-      Right (mirProgram, symbolTable) -> do
-        let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
-        let allocationResult = Allocation.allocateProgram optMirProgram
-        let x86Program = X86.Translate.translateProgram allocationResult symbolTable
-        putStrLn x86Program
-      Left err -> error err
-  X86ToFile fileName outFile -> do
-    processedAst <- processToMir fileName
-    case processedAst of
-      Right (mirProgram, symbolTable) -> do
-        let optMirProgram = Mir.CopyPropagation.optimizeProgram mirProgram
-        let allocationResult = Allocation.allocateProgram optMirProgram
-        let x86Program = X86.Translate.translateProgram allocationResult symbolTable
-        writeFile outFile x86Program
       Left err -> error err
 
 processToMir :: String -> IO (Either String (Mir.Types.Program, SymbolTable.SymbolTable))

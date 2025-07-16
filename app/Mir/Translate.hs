@@ -2,7 +2,6 @@
 
 module Mir.Translate (transProgram) where
 
-import Ast qualified
 import Ast.Types
 import Control.Lens
 import Control.Monad (foldM, foldM_, unless)
@@ -100,39 +99,39 @@ getStaticOffsetInState identifier = do
   blockId' <- use curScopedBlockId
   return $ getStaticOffset identifier blockId' st
 
-transExp :: Ast.TypedExp -> State TranslationState ()
-transExp Ast.Exp {_expAnnot = annot, _expInner}
-  | Ast.IdExp {idName} <- _expInner = do
+transExp :: TypedExp -> State TranslationState ()
+transExp Exp {_expAnnot = annot, _expInner}
+  | IdExp {idName} <- _expInner = do
       t <- use tmp
       stackOp <- idToStackOperand idName
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.NumberExp {numberValue} <- _expInner = do
+  | NumberExp {numberValue} <- _expInner = do
       t <- use tmp
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstInt numberValue}]
-  | Ast.CharExp {charValue} <- _expInner = do
+  | CharExp {charValue} <- _expInner = do
       t <- use tmp
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstChar charValue}]
-  | Ast.BinExp {binLeft = binLeft@Exp {_expInner = binLeftInner}, binOp, binRight = binRight@Exp {_expInner = binRightInner}} <- _expInner = do
+  | BinExp {binLeft = binLeft@Exp {_expInner = binLeftInner}, binOp, binRight = binRight@Exp {_expInner = binRightInner}} <- _expInner = do
       case (binLeftInner, binRightInner) of
-        (Ast.NumberExp {numberValue = l}, Ast.NumberExp {numberValue = r}) -> do
+        (NumberExp {numberValue = l}, NumberExp {numberValue = r}) -> do
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = ConstInt r}]
-        (Ast.NumberExp {numberValue = l}, _) -> do
+        (NumberExp {numberValue = l}, _) -> do
           transExp binRight
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = TempOperand t}]
-        (_, Ast.NumberExp {numberValue = r}) -> do
+        (_, NumberExp {numberValue = r}) -> do
           transExp binLeft
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstInt r}]
-        (Ast.CharExp {charValue = l}, Ast.CharExp {charValue = r}) -> do
+        (CharExp {charValue = l}, CharExp {charValue = r}) -> do
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = ConstChar r}]
-        (Ast.CharExp {charValue = l}, _) -> do
+        (CharExp {charValue = l}, _) -> do
           transExp binRight
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = TempOperand t}]
-        (_, Ast.CharExp {charValue = r}) -> do
+        (_, CharExp {charValue = r}) -> do
           transExp binLeft
           t <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstChar r}]
@@ -143,14 +142,14 @@ transExp Ast.Exp {_expAnnot = annot, _expInner}
           transExp binRight
           rt <- use tmp
           addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
-  | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}} <- _expInner = do
+  | UnaryExp {unaryOp, unaryExp = Exp {_expInner = NumberExp {numberValue}}} <- _expInner = do
       t <- use tmp
       addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
-  | Ast.UnaryExp {unaryOp, unaryExp} <- _expInner = do
+  | UnaryExp {unaryOp, unaryExp} <- _expInner = do
       transExp unaryExp
       t <- use tmp
       addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
-  | Ast.Call {callId, callArgs} <- _expInner = do
+  | Ast.Types.Call {callId, callArgs} <- _expInner = do
       mapM_
         ( \arg -> do
             transExp arg
@@ -165,17 +164,17 @@ transExp Ast.Exp {_expAnnot = annot, _expInner}
         _ -> do
           t <- use tmp
           addInstsToBlock [Mir.Types.Call {callRet = Just (TempOperand t), callFunId = callId, callArgCount = length callArgs}]
-  | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}} <- _expInner = do
+  | ArrAccess {arrId, arrIndex = Exp {_expInner = NumberExp {numberValue}}} <- _expInner = do
       let idx = ConstInt numberValue
       stackOp <- arrayAccess arrId idx
       t <- use tmp
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.ArrAccess {arrId, arrIndex} <- _expInner = do
+  | ArrAccess {arrId, arrIndex} <- _expInner = do
       transExp arrIndex
       t <- use tmp
       stackOp <- arrayAccess arrId (TempOperand t)
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.TakeAddress {takeAddressId} <- _expInner = do
+  | TakeAddress {takeAddressId} <- _expInner = do
       symb <- lookupSymbolInState takeAddressId
       case symb of
         Just Symbol {_symbolStorage = Auto} -> do
@@ -227,10 +226,10 @@ arrayAccess arrId (TempOperand idxTemp) = do
     _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId _ = error $ "Invalid array access for: " ++ arrId
 
-transStmt :: Ast.TypedStmt -> State TranslationState ()
+transStmt :: TypedStmt -> State TranslationState ()
 transStmt stmt
-  | Ast.ExpStmt {stmtExp} <- stmt = transExp stmtExp
-  | Ast.LetStmt {letVarDef = Ast.VarDef {_varDefId}, letExp} <- stmt = do
+  | ExpStmt {stmtExp} <- stmt = transExp stmtExp
+  | LetStmt {letVarDef = VarDef {_varDefId}, letExp} <- stmt = do
       blockId' <- use curScopedBlockId
       st <- use symbolTable
       let symb = lookupSymbol _varDefId blockId' st
@@ -253,12 +252,12 @@ transStmt stmt
           t <- use tmp
           stackOp <- idToStackOperand _varDefId
           addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-  | Ast.AssignStmt {assignId, assignExp} <- stmt = do
+  | AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- use tmp
       stackOp <- idToStackOperand assignId
       addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-  | Ast.LetArrStmt {letArrVarDef = Ast.VarDef {_varDefId}, letArrElems} <- stmt = do
+  | LetArrStmt {letArrVarDef = VarDef {_varDefId}, letArrElems} <- stmt = do
       blockId' <- use curScopedBlockId
       st <- use symbolTable
       let symb = lookupSymbol _varDefId blockId' st
@@ -276,13 +275,13 @@ transStmt stmt
         )
         0
         letArrElems
-  | Ast.AssignArrStmt {assignArrId, assignArrIndex = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}, assignArrExp} <- stmt = do
+  | AssignArrStmt {assignArrId, assignArrIndex = Exp {_expInner = NumberExp {numberValue}}, assignArrExp} <- stmt = do
       let idx = ConstInt numberValue
       dstOp <- arrayAccess assignArrId idx
       transExp assignArrExp
       tExp <- use tmp
       addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}]
-  | Ast.AssignArrStmt {assignArrId, assignArrIndex, assignArrExp} <- stmt = do
+  | AssignArrStmt {assignArrId, assignArrIndex, assignArrExp} <- stmt = do
       transExp assignArrIndex
       tIndex <- use tmp
       incTmp
@@ -290,14 +289,14 @@ transStmt stmt
       transExp assignArrExp
       tExp <- use tmp
       addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}]
-  | Ast.ReturnStmt {returnExp} <- stmt = do
+  | ReturnStmt {returnExp} <- stmt = do
       case returnExp of
         Just _expInner -> do
           transExp _expInner
           t <- use tmp
           terminateBlock (Return {retOperand = Just (TempOperand t)})
         Nothing -> terminateBlock (Return {retOperand = Nothing})
-  | Ast.IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
+  | IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
       lthen <- use blockId
       incBasicBlockId
       let thenBasicBlockId = "IL" ++ show lthen
@@ -329,7 +328,7 @@ transStmt stmt
           transBlock thenBasicBlockId ifBody
           terminateBlock Jump {jumpTarget = endBasicBlockId}
           curBasicBlockId .= endBasicBlockId
-  | Ast.WhileStmt {whileCond, whileBody} <- stmt = do
+  | WhileStmt {whileCond, whileBody} <- stmt = do
       lcond <- use blockId
       incBasicBlockId
       let condBasicBlockId = "WL" ++ show lcond
@@ -352,7 +351,7 @@ transStmt stmt
       terminateBlock Jump {jumpTarget = condBasicBlockId}
 
       curBasicBlockId .= endBasicBlockId
-  | Ast.ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
+  | ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
       lcond <- use blockId
       incBasicBlockId
       let condBasicBlockId = "FL" ++ show lcond
@@ -379,16 +378,16 @@ transStmt stmt
 
       curBasicBlockId .= endBasicBlockId
 
-transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
-transBlock blockId' Ast.Block {Ast._blockId, _blockStmts} = do
+transBlock :: String -> TypedBlock -> State TranslationState ()
+transBlock blockId' Block {Ast.Types._blockId, _blockStmts} = do
   curBasicBlockId .= blockId'
   curScopedBlockId .= _blockId
   mapM_ transStmt _blockStmts
   popEnv
 
-transFun :: Ast.TypedFun -> State TranslationState Mir.Types.Fun
-transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
-  let Ast.Block {Ast._blockId} = _funBody
+transFun :: TypedFun -> State TranslationState Mir.Types.Fun
+transFun Ast.Types.Fun {_funId, _funArgs, _funBody} = do
+  let Block {Ast.Types._blockId} = _funBody
 
   -- Reset frame allocation for this function
   symbolTable %= resetFrameAllocation
@@ -440,45 +439,51 @@ transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
 
   return Mir.Types.Fun {Mir.Types.funId = _funId, Mir.Types.funArgs = args', funLocals = locals, funCfg = cfg}
 
-transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
-transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
+transExternFun :: Ast.Types.ExternFun -> Mir.Types.ExternFun
+transExternFun Ast.Types.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
 
-transProgram :: Ast.TypedProgram -> SymbolTable -> (Mir.Types.Program, SymbolTable)
-transProgram Ast.Program {programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable' = do
-  let externFuns' = transExternFun <$> programExternFuns
-  let initialState =
-        TranslationState
-          { _tmp = Temp {_tempLabel = 0},
-            Mir.Translate._blockId = 0,
-            _blocks = [],
-            _symbolTable = symbolTable',
-            _curBasicBlockId = "global_entry",
-            _currentInsts = [],
-            _curScopedBlockId = 0
-          }
+transProgram :: TypedProgram -> SymbolTable -> (Mir.Types.Program, SymbolTable)
+transProgram
+  Ast.Types.Program
+    { programFuncs,
+      Ast.Types.programExternFuns,
+      Ast.Types.programMainFun
+    }
+  symbolTable' = do
+    let externFuns' = transExternFun <$> programExternFuns
+    let initialState =
+          TranslationState
+            { _tmp = Temp {_tempLabel = 0},
+              Mir.Translate._blockId = 0,
+              _blocks = [],
+              _symbolTable = symbolTable',
+              _curBasicBlockId = "global_entry",
+              _currentInsts = [],
+              _curScopedBlockId = 0
+            }
 
-  let (funs, st) =
-        runState
-          ( foldM
-              ( \acc fun -> do
-                  mirFun <- transFun fun
-                  return (acc ++ [mirFun])
-              )
-              []
-              programFuncs
-          )
-          initialState
+    let (funs, st) =
+          runState
+            ( foldM
+                ( \acc fun -> do
+                    mirFun <- transFun fun
+                    return (acc ++ [mirFun])
+                )
+                []
+                programFuncs
+            )
+            initialState
 
-  let mainFun' = case programMainFun of
-        Just fun -> Just (runState (transFun fun) st)
-        Nothing -> Nothing
+    let mainFun' = case programMainFun of
+          Just fun -> Just (runState (transFun fun) st)
+          Nothing -> Nothing
 
-  ( Mir.Types.Program
-      { programFuns = funs,
-        Mir.Types.programExternFuns = externFuns',
-        Mir.Types.programMainFun = fst <$> mainFun'
-      },
-    case mainFun' of
-      Just (_, st') -> _symbolTable st'
-      Nothing -> _symbolTable st
-    )
+    ( Mir.Types.Program
+        { programFuns = funs,
+          Mir.Types.programExternFuns = externFuns',
+          Mir.Types.programMainFun = fst <$> mainFun'
+        },
+      case mainFun' of
+        Just (_, st') -> _symbolTable st'
+        Nothing -> _symbolTable st
+      )

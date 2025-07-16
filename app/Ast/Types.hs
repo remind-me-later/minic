@@ -13,6 +13,11 @@ module Ast.Types
     RawFun,
     RawExternFun,
     RawProgram,
+    TypedExp,
+    TypedStmt,
+    TypedBlock,
+    TypedFun,
+    TypedProgram,
   )
 where
 
@@ -153,3 +158,13 @@ type RawFun = Fun ()
 type RawExternFun = ExternFun
 
 type RawProgram = Program ()
+
+type TypedExp = Exp Ty
+
+type TypedStmt = Stmt Ty
+
+type TypedBlock = Block Ty
+
+type TypedFun = Fun Ty
+
+type TypedProgram = Program Ty

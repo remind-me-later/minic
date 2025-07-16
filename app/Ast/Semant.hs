@@ -20,15 +20,6 @@ import SymbolTable qualified
 import SymbolTable.Lenses
 import TypeSystem
 
-type TypedExp = Exp Ty
-
-type TypedStmt = Stmt Ty
-
-type TypedBlock = Block Ty
-
-type TypedFun = Fun Ty
-
-type TypedProgram = Program Ty
 
 data TypingState = TypingState
   { _symbolTable :: SymbolTable,
