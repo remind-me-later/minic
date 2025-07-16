@@ -16,7 +16,7 @@ where
 import Control.Monad (forM_, unless, when)
 import Control.Monad.State (State, gets, modify', runState)
 import Mir.Types qualified as Mir
-import SymbolTable (Symbol (..), SymbolTable (..), dataList)
+import SymbolTable (Symbol (..), SymbolTable (..), dataList, listExternFunctions)
 import TypeSystem (sizeOf)
 import TypeSystem qualified (BinOp (..), UnaryOp (..))
 import X86.Types
@@ -50,8 +50,8 @@ mainFunctionEpilogue =
     Syscall -- exit the program
   ]
 
-makeFileHeader :: SymbolTable -> [String] -> String
-makeFileHeader symbolTable externs =
+makeFileHeader :: SymbolTable -> String
+makeFileHeader symbolTable =
   ".section .data\n"
     ++ "my_data_start:\n"
     ++ statics
@@ -87,6 +87,7 @@ makeFileHeader symbolTable externs =
             . snd
         )
         (dataList symbolTable)
+    externs = map fst (listExternFunctions symbolTable)
 
 data TranslationState = TranslationState
   { assemblyCode :: [Inst],
@@ -323,9 +324,8 @@ translateFun Mir.Fun {Mir.funId, Mir.funCfg} = do
   translateCfg False funCfg
 
 translateProgram' :: Mir.Program -> State TranslationState ()
-translateProgram' Mir.Program {Mir.programFuns, Mir.programExternFuns, Mir.programMainFun} = do
-  modify' (\s -> s {fileHeader = makeFileHeader (symbolTable s) (Mir.externId <$> programExternFuns)})
-
+translateProgram' Mir.Program {Mir.programFuns, Mir.programMainFun} = do
+  modify' (\s -> s {fileHeader = makeFileHeader (symbolTable s)})
   -- translate main function
   forM_ programMainFun translateMainFun
   -- translate functions

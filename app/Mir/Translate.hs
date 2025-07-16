@@ -419,21 +419,6 @@ transFun Ast.Types.Fun {_funId, _funArgs, _funBody} = do
   -- Set the function's environment
   curScopedBlockId .= _blockId
 
-  blockId' <- use curScopedBlockId
-  symbolTable' <- use symbolTable
-
-  -- FIXME: remove this
-  let args' = map (\arg -> ArgSymbol {_argSymbolId = _varDefId arg, _argSymbolTy = _varDefTy arg, _argSymbolStorage = ArgNormal 0}) _funArgs
-
-  -- Get locals for the function
-  let locals =
-        filter
-          ( \symb -> case symb of
-              ArgSymbol {_argSymbolStorage = ArgNormal {}} -> True
-              _ -> False
-          )
-          (toList blockId' symbolTable')
-
   transBlock _funId _funBody
 
   insts <- use currentInsts
@@ -448,20 +433,15 @@ transFun Ast.Types.Fun {_funId, _funArgs, _funBody} = do
 
   popBlocks
 
-  return Mir.Types.Fun {Mir.Types.funId = _funId, Mir.Types.funArgs = args', funLocals = locals, funCfg = cfg}
-
-transExternFun :: Ast.Types.ExternFun -> Mir.Types.ExternFun
-transExternFun Ast.Types.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
+  return Mir.Types.Fun {Mir.Types.funId = _funId, funCfg = cfg}
 
 transProgram :: TypedProgram -> SymbolTable -> (Mir.Types.Program, SymbolTable)
 transProgram
   Ast.Types.Program
     { programFuncs,
-      Ast.Types.programExternFuns,
       Ast.Types.programMainFun
     }
   symbolTable' = do
-    let externFuns' = transExternFun <$> programExternFuns
     let initialState =
           TranslationState
             { _tmp = Temp {_tempLabel = 0},
@@ -491,7 +471,6 @@ transProgram
 
     ( Mir.Types.Program
         { programFuns = funs,
-          Mir.Types.programExternFuns = externFuns',
           Mir.Types.programMainFun = fst <$> mainFun'
         },
       case mainFun' of

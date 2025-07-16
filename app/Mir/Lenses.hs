@@ -13,5 +13,4 @@ makeLenses ''Inst
 makeLenses ''BasicBlock
 makeLenses ''CFG
 makeLenses ''Fun
-makeLenses ''ExternFun
 makeLenses ''Program

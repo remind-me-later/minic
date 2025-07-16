@@ -10,13 +10,11 @@ module Mir.Types
     BasicBlock (..),
     CFG (..),
     Fun (..),
-    ExternFun (..),
     Program (..),
   )
 where
 
 import Data.Set
-import SymbolTable qualified
 import TypeSystem
 
 newtype Temp
@@ -123,43 +121,26 @@ instance Show CFG where
 
 data Fun = Fun
   { funId :: Id,
-    funArgs :: [SymbolTable.Symbol],
-    funLocals :: [SymbolTable.Symbol],
     funCfg :: CFG
   }
   deriving (Eq)
 
 instance Show Fun where
-  show (Fun identifier args locals cfg) =
+  show (Fun identifier cfg) =
     "Function: "
       ++ identifier
-      ++ "\nArguments: "
-      ++ unwords (show <$> args)
-      ++ "\nLocals: "
-      ++ unwords (show <$> locals)
       ++ "\n"
       ++ show cfg
 
-newtype ExternFun = ExternFun
-  { externId :: Id
-  }
-  deriving (Eq)
-
-instance Show ExternFun where
-  show (ExternFun identifier) = "Extern Function: " ++ identifier
-
 data Program = Program
   { programFuns :: [Fun],
-    programExternFuns :: [ExternFun],
     programMainFun :: Maybe Fun
   }
   deriving (Eq)
 
 instance Show Program where
-  show (Program functions externFuns mainFun) =
+  show (Program functions mainFun) =
     "Program:\n"
-      ++ "Extern Functions:\n"
-      ++ unlines (show <$> externFuns)
       ++ "Functions:\n"
       ++ unlines (show <$> functions)
       ++ case mainFun of

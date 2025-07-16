@@ -524,7 +524,7 @@ buildGlobalSymbolTable Program {programFuncs, programExternFuns} =
                 funTyRetTy = externFunRetTy ef
               }
           efId = externFunId ef
-       in insertExternFunctions efs (SymbolTable.insertFunToEnv blockId' efId efTy symbolTable')
+       in insertExternFunctions efs (SymbolTable.insertExternFunToEnv blockId' efId efTy symbolTable')
 
 typeProgram :: RawProgram -> Either [String] (TypedProgram, SymbolTable)
 typeProgram program =

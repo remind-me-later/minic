@@ -29,6 +29,7 @@ module SymbolTable
     dataList,
     insertExternFunToEnv,
     allocateAutoVarStackSlot,
+    listExternFunctions,
   )
 where
 
@@ -293,3 +294,10 @@ resetFrameAllocation st =
 
 symbolInBlock :: BlockId -> Id -> Traversal' SymbolTable Symbol
 symbolInBlock blockId' symbolId' = blockEnvs . ix blockId' . envSymbolMap . ix symbolId'
+
+listExternFunctions :: SymbolTable -> [(Id, Symbol)]
+listExternFunctions SymbolTable {_blockEnvs} =
+  concatMap (filter (isExternFun . snd) . Map.toList . _envSymbolMap) (Map.elems _blockEnvs)
+  where
+    isExternFun (FunSymbol {_funSymbolStorage}) = _funSymbolStorage == FunExtern
+    isExternFun _ = False
