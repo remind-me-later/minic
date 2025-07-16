@@ -66,6 +66,7 @@ executable minic
                     Ast.Parse
                     Ast.Semant 
                     Ast.Types
+                    Ast.Lenses
                     SymbolTable 
                     Mir 
                     Mir.Translate
@@ -88,6 +89,7 @@ executable minic
                         , parsec >= 3.1
                         , mtl >= 2.3
                         , optparse-applicative >= 0.19
+                        , lens >= 5.3
 
     -- Directories containing source files.
     hs-source-dirs:   app app/Mir app/Ast app/X86

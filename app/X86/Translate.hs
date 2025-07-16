@@ -69,7 +69,7 @@ makeFileHeader symbolTable externs =
   where
     statics =
       concatMap
-        ( \(identifier, Symbol {symbolTy}) ->
+        ( \(identifier, Symbol {_symbolTy}) ->
             ".global "
               ++ identifier
               ++ "\n"
@@ -79,7 +79,7 @@ makeFileHeader symbolTable externs =
               ++ identifier
               ++ ":\n"
               ++ ".zero "
-              ++ show (sizeOf symbolTy)
+              ++ show (sizeOf _symbolTy)
               ++ "\n"
         )
         (dataList symbolTable)

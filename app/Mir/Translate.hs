@@ -91,18 +91,18 @@ getStaticOffsetInState identifier TranslationState {symbolTable, curScopedBlockI
   getStaticOffset identifier curScopedBlockId symbolTable
 
 transExp :: Ast.TypedExp -> State TranslationState ()
-transExp Ast.Exp {expAnnot = annot, expInner}
-  | Ast.IdExp {idName} <- expInner = do
+transExp Ast.Exp {_expAnnot = annot, _expInner}
+  | Ast.IdExp {idName} <- _expInner = do
       t <- gets tmp
       stackOp <- idToStackOperand idName
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.NumberExp {numberValue} <- expInner = do
+  | Ast.NumberExp {numberValue} <- _expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstInt numberValue}]
-  | Ast.CharExp {charValue} <- expInner = do
+  | Ast.CharExp {charValue} <- _expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstChar charValue}]
-  | Ast.BinExp {binLeft = binLeft@Exp {expInner = binLeftInner}, binOp, binRight = binRight@Exp {expInner = binRightInner}} <- expInner = do
+  | Ast.BinExp {binLeft = binLeft@Exp {_expInner = binLeftInner}, binOp, binRight = binRight@Exp {_expInner = binRightInner}} <- _expInner = do
       case (binLeftInner, binRightInner) of
         (Ast.NumberExp {numberValue = l}, Ast.NumberExp {numberValue = r}) -> do
           t <- gets tmp
@@ -133,14 +133,14 @@ transExp Ast.Exp {expAnnot = annot, expInner}
           transExp binRight
           rt <- gets tmp
           modify' $ addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
-  | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- expInner = do
+  | Ast.UnaryExp {unaryOp, unaryExp = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}} <- _expInner = do
       t <- gets tmp
       modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
-  | Ast.UnaryExp {unaryOp, unaryExp} <- expInner = do
+  | Ast.UnaryExp {unaryOp, unaryExp} <- _expInner = do
       transExp unaryExp
       t <- gets tmp
       modify' $ addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
-  | Ast.Call {callId, callArgs} <- expInner = do
+  | Ast.Call {callId, callArgs} <- _expInner = do
       mapM_
         ( \arg -> do
             transExp arg
@@ -155,18 +155,18 @@ transExp Ast.Exp {expAnnot = annot, expInner}
         _ -> do
           t <- gets tmp
           modify' $ addInstsToBlock [Mir.Types.Call {callRet = Just (TempOperand t), callFunId = callId, callArgCount = length callArgs}]
-  | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}} <- expInner = do
+  | Ast.ArrAccess {arrId, arrIndex = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}} <- _expInner = do
       -- Accessing an array with a constant index
       let idx = ConstInt numberValue
       stackOp <- arrayAccess arrId idx
       t <- gets tmp
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.ArrAccess {arrId, arrIndex} <- expInner = do
+  | Ast.ArrAccess {arrId, arrIndex} <- _expInner = do
       transExp arrIndex
       t <- gets tmp
       stackOp <- arrayAccess arrId (TempOperand t)
       modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | Ast.TakeAddress {takeAddressId} <- expInner = do
+  | Ast.TakeAddress {takeAddressId} <- _expInner = do
       -- Take the address of a variable
       symb <- gets (lookupSymbolInState takeAddressId)
       case symb of
@@ -192,7 +192,7 @@ arrayAccess arrId (ConstInt idx) = do
   st <- gets symbolTable
   let symb = lookupSymbol arrId blockId st
   case symb of
-    Just Symbol {symbolTy = ArrTy {arrTyElemTy}} -> do
+    Just Symbol {_symbolTy = ArrTy {arrTyElemTy}} -> do
       case getStackOffset arrId blockId st of
         Just offset -> do
           let elemSize = sizeOf arrTyElemTy
@@ -204,7 +204,7 @@ arrayAccess arrId (TempOperand idxTemp) = do
   st <- gets symbolTable
   let symb = lookupSymbol arrId blockId st
   case symb of
-    Just Symbol {symbolTy = ArrTy {arrTyElemTy}} -> do
+    Just Symbol {_symbolTy = ArrTy {arrTyElemTy}} -> do
       case getStackOffset arrId blockId st of
         Just offset -> do
           let elemSize = sizeOf arrTyElemTy
@@ -227,24 +227,24 @@ transStmt :: Ast.TypedStmt -> State TranslationState ()
 transStmt stmt
   | Ast.ExpStmt {stmtExp} <- stmt = do
       transExp stmtExp
-  | Ast.LetStmt {letVarDef = Ast.VarDef {varDefId}, letExp} <- stmt = do
+  | Ast.LetStmt {letVarDef = Ast.VarDef {_varDefId}, letExp} <- stmt = do
       -- If the variable is a scalar allocate it on a temporary register
       -- If it's an array, allocate it on the stack
       blockId <- gets curScopedBlockId
       st <- gets symbolTable
-      let symb = lookupSymbol varDefId blockId st
+      let symb = lookupSymbol _varDefId blockId st
       case symb of
         Just
           Symbol
             { symbolStorage = Auto,
-              symbolTy = IntTy,
+              _symbolTy = IntTy,
               addressTaken = False
             } -> do
             transExp letExp
             t <- gets tmp -- Get the temp containing the expression result
             -- Allocate temp register for the variable
-            modify' $ \s -> s {symbolTable = allocateTempRegister varDefId blockId (symbolTable s)}
-            stackOp <- idToStackOperand varDefId
+            modify' $ \s -> s {symbolTable = allocateTempRegister _varDefId blockId (symbolTable s)}
+            stackOp <- idToStackOperand _varDefId
             modify' $ addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
         Just
           Symbol
@@ -253,29 +253,29 @@ transStmt stmt
             transExp letExp
             t <- gets tmp -- Get the temp containing the expression result
             -- Allocate static data slot
-            modify' $ \s -> s {symbolTable = allocateStaticSlot varDefId blockId (symbolTable s)}
-            stackOp <- idToStackOperand varDefId
+            modify' $ \s -> s {symbolTable = allocateStaticSlot _varDefId blockId (symbolTable s)}
+            stackOp <- idToStackOperand _varDefId
             modify' $ addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
         _ -> do
           -- Allocate on stack
-          modify' $ \s -> s {symbolTable = allocateStackSlot varDefId blockId Auto (symbolTable s)}
+          modify' $ \s -> s {symbolTable = allocateStackSlot _varDefId blockId Auto (symbolTable s)}
           transExp letExp
           t <- gets tmp
-          stackOp <- idToStackOperand varDefId
+          stackOp <- idToStackOperand _varDefId
           modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}])
   | Ast.AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- gets tmp
       stackOp <- idToStackOperand assignId
       modify' (addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}])
-  | Ast.LetArrStmt {letArrVarDef = Ast.VarDef {varDefId}, letArrElems} <- stmt = do
+  | Ast.LetArrStmt {letArrVarDef = Ast.VarDef {_varDefId}, letArrElems} <- stmt = do
       -- Store all the elements in the initializer in the array
       -- SInce the array is allocated on the stack, we can use the temporary
       -- registers to store the elements
       foldM_
         ( \idx item -> do
             -- access the array and store the element
-            dstOp <- arrayAccess varDefId (ConstInt idx)
+            dstOp <- arrayAccess _varDefId (ConstInt idx)
             transExp item
             tElem <- gets tmp
             modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tElem}])
@@ -284,7 +284,7 @@ transStmt stmt
         )
         0
         letArrElems
-  | Ast.AssignArrStmt {assignArrId, assignArrIndex = Ast.Exp {expInner = Ast.NumberExp {numberValue}}, assignArrExp} <- stmt = do
+  | Ast.AssignArrStmt {assignArrId, assignArrIndex = Ast.Exp {_expInner = Ast.NumberExp {numberValue}}, assignArrExp} <- stmt = do
       -- Assigning to an array with a constant index
       let idx = ConstInt numberValue
       dstOp <- arrayAccess assignArrId idx
@@ -302,8 +302,8 @@ transStmt stmt
       modify' (addInstsToBlock [Assign {instDst = dstOp, instSrc = TempOperand tExp}])
   | Ast.ReturnStmt {returnExp} <- stmt = do
       case returnExp of
-        Just expInner -> do
-          transExp expInner
+        Just _expInner -> do
+          transExp _expInner
           t <- gets tmp
           modify' $ terminateBlock (Return {retOperand = Just (TempOperand t)})
         Nothing -> modify' $ terminateBlock (Return {retOperand = Nothing})
@@ -391,15 +391,15 @@ transStmt stmt
       modify' (setCurBasicBlockId endBasicBlockId)
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
-transBlock blockId Ast.Block {blockAnnot = scope, blockStmts} = do
+transBlock blockId Ast.Block {_blockAnnot = scope, _blockStmts} = do
   modify' (setCurBasicBlockId blockId)
   modify' (\s -> s {curScopedBlockId = scope})
-  mapM_ transStmt blockStmts
+  mapM_ transStmt _blockStmts
   modify' popEnv
 
 transFun :: Ast.TypedFun -> State TranslationState Mir.Types.Fun
-transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
-  let Ast.Block {blockAnnot} = funBody
+transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
+  let Ast.Block {_blockAnnot} = _funBody
 
   -- Reset frame allocation for this function
   modify' $ \s -> s {symbolTable = resetFrameAllocation (symbolTable s)}
@@ -411,20 +411,20 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
       }
 
   -- Set the function's environment (which should contain the arguments)
-  modify' (\s -> s {curScopedBlockId = blockAnnot})
+  modify' (\s -> s {curScopedBlockId = _blockAnnot})
 
   -- Now allocate stack space for arguments (they should already be in the env)
   args' <-
     mapM
-      ( \VarDef {varDefId} -> do
+      ( \VarDef {_varDefId} -> do
           blockId <- gets curScopedBlockId
-          modify' $ \s -> s {symbolTable = allocateStackSlot varDefId blockId Argument (symbolTable s)}
+          modify' $ \s -> s {symbolTable = allocateStackSlot _varDefId blockId Argument (symbolTable s)}
           st <- gets symbolTable
-          case lookupSymbol varDefId blockId st of
+          case lookupSymbol _varDefId blockId st of
             Just s@Symbol {symbolStorage = Argument} -> return s
-            _ -> error $ "Argument allocation error: " ++ varDefId
+            _ -> error $ "Argument allocation error: " ++ _varDefId
       )
-      funArgs
+      _funArgs
 
   blockId <- gets curScopedBlockId
   symbolTable' <- gets symbolTable
@@ -440,7 +440,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
           (toList blockId symbolTable')
 
   -- Rest of function translation...
-  transBlock funId funBody
+  transBlock _funId _funBody
 
   insts <- gets currentInsts
   unless (null insts) $
@@ -454,7 +454,7 @@ transFun Ast.Fun {Ast.Types.funId, Ast.Types.funArgs, funBody} = do
 
   modify' popBlocks
 
-  return Mir.Types.Fun {Mir.Types.funId = funId, Mir.Types.funArgs = args', funLocals = locals, funCfg = cfg}
+  return Mir.Types.Fun {Mir.Types.funId = _funId, Mir.Types.funArgs = args', funLocals = locals, funCfg = cfg}
 
 transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
 transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}

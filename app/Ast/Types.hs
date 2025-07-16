@@ -19,8 +19,8 @@ where
 import TypeSystem
 
 data Exp ea = Exp
-  { expAnnot :: ea,
-    expInner :: ExpInner ea
+  { _expAnnot :: ea,
+    _expInner :: ExpInner ea
   }
   deriving (Show, Eq)
 
@@ -67,8 +67,8 @@ instance (Show ea) => Show (ExpInner ea) where
   show (TakeAddress identifier) = "&" ++ identifier
 
 data VarDef = VarDef
-  { varDefId :: Id,
-    varDefTy :: Ty
+  { _varDefId :: Id,
+    _varDefTy :: Ty
   }
   deriving (Show, Eq)
 
@@ -115,16 +115,16 @@ data Stmt ea ba
   deriving (Show, Eq)
 
 data Block ea ba = Block
-  { blockAnnot :: ba,
-    blockStmts :: [Stmt ea ba]
+  { _blockAnnot :: ba,
+    _blockStmts :: [Stmt ea ba]
   }
   deriving (Show, Eq)
 
 data Fun a ba = Fun
-  { funId :: Id,
-    funArgs :: [VarDef],
-    funRetTy :: Ty,
-    funBody :: Block a ba
+  { _funId :: Id,
+    _funArgs :: [VarDef],
+    _funRetTy :: Ty,
+    _funBody :: Block a ba
   }
   deriving (Show, Eq)
 

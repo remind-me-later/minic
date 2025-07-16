@@ -114,26 +114,26 @@ expression = eqexp
       where
         numexp = do
           numberValue <- num
-          return Exp {expAnnot = (), expInner = NumberExp {numberValue}}
+          return Exp {_expAnnot = (), _expInner = NumberExp {numberValue}}
         charexp = do
           charValue <- char
-          return Exp {expAnnot = (), expInner = CharExp {charValue}}
+          return Exp {_expAnnot = (), _expInner = CharExp {charValue}}
         idexp = do
           idName <- identifier
-          return Exp {expAnnot = (), expInner = IdExp {idName}}
+          return Exp {_expAnnot = (), _expInner = IdExp {idName}}
         parenexp = parens expression
         callexp = do
           callId <- identifier
           callArgs <- parens (commaSep expression)
-          return Exp {expAnnot = (), expInner = Call {callId, callArgs}}
+          return Exp {_expAnnot = (), _expInner = Call {callId, callArgs}}
         arraccess = do
           arrId <- identifier
           arrIndex <- brackets expression
-          return Exp {expAnnot = (), expInner = ArrAccess {arrId, arrIndex}}
+          return Exp {_expAnnot = (), _expInner = ArrAccess {arrId, arrIndex}}
         takeAddress = do
           _ <- symbol "&"
           takeAddressId <- identifier
-          return Exp {expAnnot = (), expInner = TakeAddress {takeAddressId}}
+          return Exp {_expAnnot = (), _expInner = TakeAddress {takeAddressId}}
 
     unaryexp = do
       op <-
@@ -144,7 +144,7 @@ expression = eqexp
       case op of
         Just unaryOp -> do
           e <- PC.try unaryexp <|> factor
-          return Exp {expAnnot = (), expInner = UnaryExp {unaryOp, unaryExp = e}}
+          return Exp {_expAnnot = (), _expInner = UnaryExp {unaryOp, unaryExp = e}}
         Nothing -> factor
 
     mulexp = do
@@ -158,7 +158,7 @@ expression = eqexp
       case maybeOp of
         Just binOp -> do
           binRight <- mulexp
-          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+          return Exp {_expAnnot = (), _expInner = BinExp {binLeft, binOp, binRight}}
         Nothing -> return binLeft
 
     addsubexp = do
@@ -172,7 +172,7 @@ expression = eqexp
       case maybeOp of
         Just binOp -> do
           binRight <- addsubexp
-          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+          return Exp {_expAnnot = (), _expInner = BinExp {binLeft, binOp, binRight}}
         Nothing -> return binLeft
 
     eqexp = do
@@ -189,14 +189,14 @@ expression = eqexp
       case maybeOp of
         Just binOp -> do
           binRight <- eqexp
-          return Exp {expAnnot = (), expInner = BinExp {binLeft, binOp, binRight}}
+          return Exp {_expAnnot = (), _expInner = BinExp {binLeft, binOp, binRight}}
         Nothing -> return binLeft
 
 vardef :: PC.Parser VarDef
 vardef = do
-  varDefTy <- ty
-  varDefId <- identifier
-  return VarDef {varDefId, varDefTy}
+  _varDefTy <- ty
+  _varDefId <- identifier
+  return VarDef {_varDefId, _varDefTy}
 
 letstmt :: PC.Parser RawStmt
 letstmt = do
@@ -288,8 +288,8 @@ stmt =
 
 block :: PC.Parser RawBlock
 block = do
-  blockStmts <- braces (many stmt)
-  return $ Block {blockAnnot = (), blockStmts}
+  _blockStmts <- braces (many stmt)
+  return $ Block {_blockAnnot = (), _blockStmts}
 
 storageSpecifier :: PC.Parser StorageSpecifier
 storageSpecifier =
@@ -299,11 +299,11 @@ storageSpecifier =
 
 fun :: PC.Parser RawFun
 fun = do
-  funRetTy <- ty
-  funId <- identifier
-  funArgs <- parens (commaSep vardef)
-  funBody <- block
-  return Fun {funId, funArgs, funRetTy, funBody}
+  _funRetTy <- ty
+  _funId <- identifier
+  _funArgs <- parens (commaSep vardef)
+  _funBody <- block
+  return Fun {_funId, _funArgs, _funRetTy, _funBody}
 
 externfun :: PC.Parser RawExternFun
 externfun = do
@@ -315,7 +315,7 @@ externfun = do
   return
     ExternFun
       { externFunId,
-        externFunArgs = varDefTy <$> externFunArgs,
+        externFunArgs = _varDefTy <$> externFunArgs,
         externFunRetTy
       }
 
@@ -330,7 +330,7 @@ program = do
         foldl
           ( \acc f -> case f of
               Left topLevelFun ->
-                case funId topLevelFun of
+                case _funId topLevelFun of
                   "main" -> acc {programMainFun = Just topLevelFun}
                   _ -> acc {programFuncs = programFuncs acc ++ [topLevelFun]}
               Right externFun -> acc {programExternFuns = programExternFuns acc ++ [externFun]}
