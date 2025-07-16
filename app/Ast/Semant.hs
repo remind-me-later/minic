@@ -15,11 +15,9 @@ import Ast.Types
 import Control.Lens
 import Control.Monad (when)
 import Control.Monad.State (State, runState)
-import SymbolTable (BlockId, Symbol (..), SymbolStorage (..), SymbolTable)
+import SymbolTable (BlockId, Symbol (..), SymbolTable)
 import SymbolTable qualified
-import SymbolTable.Lenses
 import TypeSystem
-
 
 data TypingState = TypingState
   { _symbolTable :: SymbolTable,
@@ -33,10 +31,10 @@ makeLenses ''TypingState
 addErrorInState :: String -> State TypingState ()
 addErrorInState err = errors %= (err :)
 
-insertVarInState :: VarDef -> SymbolStorage -> State TypingState ()
-insertVarInState varDef storage = do
+insertVarInState :: VarDef -> State TypingState ()
+insertVarInState varDef = do
   curBlockId <- use currentBlockId
-  symbolTable %= SymbolTable.insertVar varDef storage curBlockId
+  symbolTable %= SymbolTable.insertVar varDef curBlockId
 
 insertArgInState :: VarDef -> State TypingState ()
 insertArgInState varDef = do
@@ -72,12 +70,6 @@ currentFunInState = do
 
 setCurrentFunInState :: Id -> State TypingState ()
 setCurrentFunInState = assign curFun . Just
-
-storageSpecifierToSymbolStorage :: Maybe StorageSpecifier -> SymbolStorage
-storageSpecifierToSymbolStorage Nothing = SymbolTable.Auto
-storageSpecifierToSymbolStorage (Just TypeSystem.Auto) = SymbolTable.Auto
-storageSpecifierToSymbolStorage (Just TypeSystem.Static) = SymbolTable.Static
-storageSpecifierToSymbolStorage (Just TypeSystem.Extern) = SymbolTable.Extern
 
 typeBinOp :: BinOp -> TypedExp -> TypedExp -> State TypingState Ty
 typeBinOp op' Exp {_expAnnot = lty} Exp {_expAnnot = rty}
@@ -170,11 +162,21 @@ typeExp expression = case expression ^. expInner of
   IdExp {idName} -> do
     symb <- lookupSymbolInState idName
     case symb of
-      Just Symbol {_symbolTy = FunTy {funTyRetTy}} -> do
+      Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
+        return
+          Exp
+            { _expAnnot = _varSymbolTy,
+              _expInner = IdExp {idName}
+            }
+      Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
+        return
+          Exp
+            { _expAnnot = _argSymbolTy,
+              _expInner = IdExp {idName}
+            }
+      Just FunSymbol {_funSymbolTy} -> do
         addErrorInState ("Cannot use function " ++ idName ++ " as variable")
-        return $ Exp {_expAnnot = funTyRetTy, _expInner = IdExp {idName}}
-      Just Symbol {_symbolTy} ->
-        return Exp {_expAnnot = _symbolTy, _expInner = IdExp {idName}}
+        return $ Exp {_expAnnot = _funSymbolTy, _expInner = IdExp {idName}}
       Nothing -> do
         addErrorInState ("Undefined variable: " ++ idName)
         return $ annotateIllegalExpAsVoid (IdExp {idName})
@@ -208,7 +210,7 @@ typeExp expression = case expression ^. expInner of
     callArgs' <- mapM typeExp callArgs
 
     case symb of
-      Just Symbol {_symbolTy = FunTy {funTyArgs, funTyRetTy}} -> do
+      Just FunSymbol {_funSymbolTy = FunTy {funTyArgs, funTyRetTy}} -> do
         let argtys' = map (^. expAnnot) callArgs'
         when (argtys' /= funTyArgs) $
           addErrorInState
@@ -229,8 +231,14 @@ typeExp expression = case expression ^. expInner of
             { _expAnnot = funTyRetTy,
               _expInner = Call {callId, callArgs = callArgs'}
             }
-      Just Symbol {_symbolTy} -> do
-        addErrorInState ("Cannot call variable: " ++ callId ++ " of type: " ++ show _symbolTy)
+      Just FunSymbol {_funSymbolTy} -> do
+        addErrorInState ("Internal error: expected function type, got " ++ show _funSymbolTy)
+        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
+      Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
+        addErrorInState ("Cannot call variable: " ++ callId ++ " of type: " ++ show _varSymbolTy)
+        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
+      Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
+        addErrorInState ("Cannot call argument: " ++ callId ++ " of type: " ++ show _argSymbolTy)
         return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
       Nothing -> do
         addErrorInState ("Undefined function: " ++ callId)
@@ -241,7 +249,7 @@ typeExp expression = case expression ^. expInner of
     let arrIndexTy = arrIndex' ^. expAnnot
 
     case symb of
-      Just Symbol {_symbolTy = ArrTy {arrTyElemTy}} -> do
+      Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}} -> do
         when (arrIndexTy /= IntTy) $
           addErrorInState ("Array index must be of type IntTy, got " ++ show arrIndexTy)
         return
@@ -249,8 +257,20 @@ typeExp expression = case expression ^. expInner of
             { _expAnnot = arrTyElemTy,
               _expInner = ArrAccess {arrId, arrIndex = arrIndex'}
             }
-      Just Symbol {_symbolTy} -> do
-        addErrorInState ("Cannot access array element of variable: " ++ arrId ++ " of type: " ++ show _symbolTy)
+      Just VarSymbol {_varSymbolTy} -> do
+        addErrorInState ("Cannot access array element of variable: " ++ arrId ++ " of type: " ++ show _varSymbolTy)
+        return $ annotateIllegalExpAsVoid (ArrAccess {arrId, arrIndex = arrIndex'})
+      -- TODO: passing arrays as arguments is not supported yet
+      Just ArgSymbol {} -> do
+        when (arrIndexTy /= IntTy) $
+          addErrorInState ("Passing arrays as arguments is not supported yet, got index of type " ++ show arrIndexTy)
+        return
+          Exp
+            { _expAnnot = VoidTy,
+              _expInner = ArrAccess {arrId, arrIndex = arrIndex'}
+            }
+      Just FunSymbol {_funSymbolTy} -> do
+        addErrorInState ("Cannot access array element of function: " ++ arrId ++ " of type: " ++ show _funSymbolTy)
         return $ annotateIllegalExpAsVoid (ArrAccess {arrId, arrIndex = arrIndex'})
       Nothing -> do
         addErrorInState ("Undefined variable: " ++ arrId)
@@ -258,14 +278,21 @@ typeExp expression = case expression ^. expInner of
   TakeAddress {takeAddressId} -> do
     symb <- lookupSymbolInState takeAddressId
     case symb of
-      Just Symbol {_symbolTy} -> do
-        curBlock <- use currentBlockId
-        symbolTable %= SymbolTable.setAddressTaken takeAddressId curBlock
+      Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
         return
           Exp
-            { _expAnnot = PtrTy {ptrTyElemTy = _symbolTy},
+            { _expAnnot = PtrTy {ptrTyElemTy = _varSymbolTy},
               _expInner = TakeAddress {takeAddressId}
             }
+      Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
+        return
+          Exp
+            { _expAnnot = PtrTy {ptrTyElemTy = _argSymbolTy},
+              _expInner = TakeAddress {takeAddressId}
+            }
+      Just FunSymbol {_funSymbolTy} -> do
+        addErrorInState ("Cannot take address of function: " ++ takeAddressId ++ " of type: " ++ show _funSymbolTy)
+        return $ annotateIllegalExpAsVoid (TakeAddress {takeAddressId})
       Nothing -> do
         addErrorInState ("Undefined variable: " ++ takeAddressId)
         return $ annotateIllegalExpAsVoid (TakeAddress {takeAddressId})
@@ -309,7 +336,8 @@ typeStmt stmt = case stmt of
     when (expTy /= varTy) $
       addErrorInState ("Type mismatch in variable definition: expected " ++ show varTy ++ ", got " ++ show expTy)
 
-    insertVarInState letVarDef (storageSpecifierToSymbolStorage letStorage)
+    insertVarInState letVarDef
+
     return $ mkTypedLetStmt letVarDef letExp' letStorage
   LetArrStmt {letArrVarDef, letArrSize, letArrElems, letArrStorage} -> do
     letArrElems' <- mapM typeExp letArrElems
@@ -327,7 +355,7 @@ typeStmt stmt = case stmt of
       addErrorInState ("Array size mismatch: expected " ++ show letArrSize ++ ", got " ++ show (length letArrElems))
 
     let arrDef = letArrVarDef & varDefTy .~ ArrTy {arrTyElemTy = varTy, arrTySize = letArrSize}
-    insertVarInState arrDef (storageSpecifierToSymbolStorage letArrStorage)
+    insertVarInState arrDef
     return $ mkTypedLetArrStmt letArrVarDef letArrSize letArrElems' letArrStorage
   AssignArrStmt {assignArrId, assignArrIndex, assignArrExp} -> do
     symb <- lookupSymbolInState assignArrId
@@ -338,16 +366,17 @@ typeStmt stmt = case stmt of
         expTy = assignArrExp' ^. expAnnot
 
     case symb of
-      Just symbol -> case symbol ^. symbolTy of
-        ArrTy {arrTyElemTy} -> do
-          when (indexTy /= IntTy) $
-            addErrorInState ("Array index must be of type IntTy, got " ++ show indexTy)
-          when (expTy /= arrTyElemTy) $
-            addErrorInState ("Type mismatch in array assignment: expected " ++ show arrTyElemTy ++ ", got " ++ show expTy)
-        otherTy ->
-          addErrorInState ("Cannot assign to non-array variable: " ++ assignArrId ++ " of type: " ++ show otherTy)
+      Just VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}} -> do
+        when (indexTy /= IntTy) $
+          addErrorInState ("Array index must be of type IntTy, got " ++ show indexTy)
+        when (expTy /= arrTyElemTy) $
+          addErrorInState ("Type mismatch in array assignment: expected " ++ show arrTyElemTy ++ ", got " ++ show expTy)
+      Just VarSymbol {_varSymbolTy} -> do
+        addErrorInState ("Cannot assign to non-array variable: " ++ assignArrId ++ " of type: " ++ show _varSymbolTy)
       Nothing ->
         addErrorInState ("Undefined variable: " ++ assignArrId)
+      _ -> do
+        addErrorInState ("Cannot assign to non-array variable: " ++ assignArrId)
 
     return $ mkTypedAssignArrStmt assignArrId assignArrIndex' assignArrExp'
   AssignStmt {assignId, assignExp} -> do
@@ -357,13 +386,15 @@ typeStmt stmt = case stmt of
     let expTy = assignExp' ^. expAnnot
 
     case symb of
-      Just symbol -> case symbol ^. symbolTy of
-        FunTy {} ->
-          addErrorInState ("Cannot assign to function: " ++ assignId)
-        varTy ->
-          when (expTy /= varTy) $
-            addErrorInState ("Type mismatch in assignment: expected " ++ show varTy ++ ", got " ++ show expTy)
-      Nothing ->
+      Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
+        when (expTy /= _varSymbolTy) $
+          addErrorInState ("Type mismatch in assignment: expected " ++ show _varSymbolTy ++ ", got " ++ show expTy)
+      Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
+        when (expTy /= _argSymbolTy) $
+          addErrorInState ("Type mismatch in assignment to argument: expected " ++ show _argSymbolTy ++ ", got " ++ show expTy)
+      Just FunSymbol {_funSymbolTy} -> do
+        addErrorInState ("Cannot assign to function: " ++ assignId ++ " of type: " ++ show _funSymbolTy)
+      Nothing -> do
         addErrorInState ("Undefined variable: " ++ assignId)
 
     return $ mkTypedAssignStmt assignId assignExp'
@@ -380,12 +411,15 @@ typeStmt stmt = case stmt of
         return (Nothing, VoidTy)
 
     case curfun of
-      Just symbol -> case symbol ^. symbolTy of
-        FunTy {funTyRetTy} ->
-          when (funTyRetTy /= expty) $
-            addErrorInState ("Return type mismatch: expected " ++ show funTyRetTy ++ ", got " ++ show expty)
-        _ ->
-          addErrorInState "Cannot return from a variable"
+      Just FunSymbol {_funSymbolTy = FunTy {funTyRetTy}} ->
+        when (funTyRetTy /= expty) $
+          addErrorInState ("Return type mismatch: expected " ++ show funTyRetTy ++ ", got " ++ show expty)
+      Just FunSymbol {} ->
+        addErrorInState "Internal error: expected function type, got a different symbol type"
+      Just VarSymbol {} ->
+        addErrorInState "Cannot return from a variable"
+      Just ArgSymbol {} ->
+        addErrorInState "Cannot return from an argument"
       Nothing ->
         addErrorInState "Unreachable: undefined function"
 

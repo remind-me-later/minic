@@ -69,18 +69,22 @@ makeFileHeader symbolTable externs =
   where
     statics =
       concatMap
-        ( \(identifier, Symbol {_symbolTy}) ->
-            ".global "
-              ++ identifier
-              ++ "\n"
-              ++ ".type "
-              ++ identifier
-              ++ ", @object\n"
-              ++ identifier
-              ++ ":\n"
-              ++ ".zero "
-              ++ show (sizeOf _symbolTy)
-              ++ "\n"
+        ( ( \sym -> case sym of
+              ArgSymbol {_argSymbolId, _argSymbolTy, _argSymbolStorage} ->
+                ".global "
+                  ++ _argSymbolId
+                  ++ "\n"
+                  ++ ".type "
+                  ++ _argSymbolId
+                  ++ ", @object\n"
+                  ++ _argSymbolId
+                  ++ ":\n"
+                  ++ ".zero "
+                  ++ show (sizeOf _argSymbolTy)
+                  ++ "\n"
+              _ -> error "Unsupported symbol type in makeFileHeader"
+          )
+            . snd
         )
         (dataList symbolTable)
 

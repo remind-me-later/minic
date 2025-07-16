@@ -7,55 +7,105 @@ type BlockId = Int
 
 type FunctionId = String
 
-data SymbolStorage
-  = Argument
-  | Auto
-  | Static
-  | Extern
+data VarSymbolStorage
+  = VarAutoStack
+      { varSymbolStorageStackOffset :: Int
+      }
+  | VarAutoTemp
+      { varSymbolStorageTempRegister :: Int
+      }
+  | VarStatic
+      { varSymbolStorageStaticOffset :: Int
+      }
   deriving (Eq)
 
-instance Show SymbolStorage where
-  show Argument = "Argument"
-  show Auto = "Auto"
-  show Static = "Static"
-  show Extern = "Extern"
+instance Show VarSymbolStorage where
+  show (VarAutoStack {varSymbolStorageStackOffset}) =
+    "VarAutoStack { stackOffset: " ++ show varSymbolStorageStackOffset ++ " }"
+  show (VarAutoTemp {varSymbolStorageTempRegister}) =
+    "VarAutoTemp { tempRegister: " ++ show varSymbolStorageTempRegister ++ " }"
+  show (VarStatic {varSymbolStorageStaticOffset}) =
+    "VarStatic { staticOffset: " ++ show varSymbolStorageStaticOffset ++ " }"
 
-data Symbol = Symbol
-  { _symbolId :: Id,
-    _symbolTy :: Ty,
-    _symbolStorage :: SymbolStorage,
-    _addressTaken :: Bool,
-    _stackOffset :: Maybe Int,
-    _tempRegister :: Maybe Int,
-    _staticOffset :: Maybe Int
+data FunSymbolStorage
+  = FunNormal -- TODO: Are functions static? Whatever, won't matter until we want to take function addresses
+  | FunExtern
+  deriving (Eq)
+
+instance Show FunSymbolStorage where
+  show FunNormal = "FunNormal"
+  show FunExtern = "FunExtern"
+
+newtype ArgSymbolStorage
+  = ArgNormal
+  { argSymbolStorageOffset :: Int -- right now arguments are always on the stack
   }
+  deriving (Eq)
+
+instance Show ArgSymbolStorage where
+  show (ArgNormal offset) = "ArgNormal { offset: " ++ show offset ++ " }"
+
+data Symbol
+  = VarSymbol
+      { _varSymbolId :: Id,
+        _varSymbolTy :: Ty,
+        _varSymbolStorage :: Maybe VarSymbolStorage,
+        _varAddressTaken :: Bool
+      }
+  | ArgSymbol
+      { _argSymbolId :: Id,
+        _argSymbolTy :: Ty,
+        _argSymbolStorage :: ArgSymbolStorage
+      }
+  | FunSymbol
+      { _funSymbolId :: FunctionId,
+        _funSymbolTy :: Ty,
+        _funSymbolStorage :: FunSymbolStorage
+      }
   deriving (Eq)
 
 instance Show Symbol where
   show
-    Symbol
-      { _symbolTy,
-        _symbolStorage,
-        _symbolId,
-        _addressTaken,
-        _stackOffset,
-        _tempRegister,
-        _staticOffset
-      } =
-      "Symbol { id: "
-        ++ show _symbolId
+    ( VarSymbol
+        { _varSymbolId,
+          _varSymbolTy,
+          _varSymbolStorage
+        }
+      ) =
+      "VarSymbol { id: "
+        ++ show _varSymbolId
         ++ ", type: "
-        ++ show _symbolTy
+        ++ show _varSymbolTy
         ++ ", storage: "
-        ++ show _symbolStorage
-        ++ ", addressTaken: "
-        ++ show _addressTaken
-        ++ ", stackOffset: "
-        ++ show _stackOffset
-        ++ ", tempRegister: "
-        ++ show _tempRegister
-        ++ ", staticOffset: "
-        ++ show _staticOffset
+        ++ show _varSymbolStorage
+        ++ " }"
+  show
+    ( ArgSymbol
+        { _argSymbolId,
+          _argSymbolTy,
+          _argSymbolStorage
+        }
+      ) =
+      "ArgSymbol { id: "
+        ++ show _argSymbolId
+        ++ ", type: "
+        ++ show _argSymbolTy
+        ++ ", storage: "
+        ++ show _argSymbolStorage
+        ++ " }"
+  show
+    ( FunSymbol
+        { _funSymbolId,
+          _funSymbolTy,
+          _funSymbolStorage
+        }
+      ) =
+      "FunSymbol { id: "
+        ++ show _funSymbolId
+        ++ ", type: "
+        ++ show _funSymbolTy
+        ++ ", storage: "
+        ++ show _funSymbolStorage
         ++ " }"
 
 data Environment = Env
