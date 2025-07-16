@@ -15,19 +15,20 @@ import Ast.Types
 import Control.Lens
 import Control.Monad (when)
 import Control.Monad.State (State, runState)
-import SymbolTable (BlockId, Symbol (..), SymbolStorage (..), SymbolTable, symbolTy)
+import SymbolTable (BlockId, Symbol (..), SymbolStorage (..), SymbolTable)
 import SymbolTable qualified
+import SymbolTable.Lenses
 import TypeSystem
 
 type TypedExp = Exp Ty
 
-type TypedStmt = Stmt Ty BlockId
+type TypedStmt = Stmt Ty
 
-type TypedBlock = Block Ty BlockId
+type TypedBlock = Block Ty
 
-type TypedFun = Fun Ty BlockId
+type TypedFun = Fun Ty
 
-type TypedProgram = Program Ty BlockId
+type TypedProgram = Program Ty
 
 data TypingState = TypingState
   { _symbolTable :: SymbolTable,
@@ -51,12 +52,11 @@ insertArgInState varDef = do
   curBlockId <- use currentBlockId
   symbolTable %= SymbolTable.insertArg varDef curBlockId
 
-openEnvInState :: State TypingState ()
-openEnvInState = do
+openEnvInState :: BlockId -> BlockId -> State TypingState ()
+openEnvInState blockId' parentBlockId' = do
   st <- use symbolTable
-  let (newSt, newBlock) = SymbolTable.openEnv st
-  symbolTable .= newSt
-  currentBlockId .= newBlock
+  symbolTable .= SymbolTable.openEnv blockId' parentBlockId' st
+  currentBlockId .= blockId'
 
 closeEnvInState :: State TypingState ()
 closeEnvInState = do
@@ -74,10 +74,10 @@ currentFunInState :: State TypingState (Maybe Symbol)
 currentFunInState = do
   maybeFunId <- use curFun
   symbolTable' <- use symbolTable
-  blockId <- use currentBlockId
+  blockId' <- use currentBlockId
   return $ case maybeFunId of
     Nothing -> Nothing
-    Just _funId -> SymbolTable.lookupSymbol _funId blockId symbolTable'
+    Just _funId -> SymbolTable.lookupSymbol _funId blockId' symbolTable'
 
 setCurrentFunInState :: Id -> State TypingState ()
 setCurrentFunInState = assign curFun . Just
@@ -432,22 +432,22 @@ typeStmt stmt = case stmt of
     return $ mkTypedForStmt forInit' forCond' forUpdate' forBody'
 
 typeBlock :: RawBlock -> State TypingState TypedBlock
-typeBlock Block {_blockStmts} = do
-  openEnvInState
-  blockId <- use currentBlockId
+typeBlock Block {_blockStmts, _blockId} = do
+  parentBlockId' <- use currentBlockId
+  openEnvInState _blockId parentBlockId'
   annotatedStmts <- mapM typeStmt _blockStmts
   closeEnvInState
-  return Block {_blockAnnot = blockId, _blockStmts = annotatedStmts}
+  return Block {_blockId, _blockStmts = annotatedStmts}
 
 typeFun :: RawFun -> State TypingState TypedFun
-typeFun Fun {_funId, _funArgs, _funRetTy, _funBody = Block {_blockStmts}} = do
-  openEnvInState
-  blockId <- use currentBlockId
+typeFun Fun {_funId, _funArgs, _funRetTy, _funBody = Block {_blockStmts, _blockId}} = do
+  parentBlockId' <- use currentBlockId
+  openEnvInState _blockId parentBlockId'
   mapM_ insertArgInState _funArgs
   setCurrentFunInState _funId
   annotatedStmts <- mapM typeStmt _blockStmts
   closeEnvInState
-  return Fun {_funId, _funArgs, _funRetTy, _funBody = Block {_blockAnnot = blockId, _blockStmts = annotatedStmts}}
+  return Fun {_funId, _funArgs, _funRetTy, _funBody = Block {_blockId, _blockStmts = annotatedStmts}}
 
 -- | No typing is performed for external functions since their types are assumed to be correct.
 typeExternFun :: ExternFun -> State TypingState ExternFun
@@ -464,12 +464,9 @@ typeProgram' Program {programFuncs, programExternFuns, programMainFun} = do
     Nothing -> do
       return Nothing
 
-  blockId <- use currentBlockId
-
   return
     Program
-      { programAnnot = blockId,
-        programFuncs = programFuncs',
+      { programFuncs = programFuncs',
         programExternFuns = programExternFuns',
         programMainFun = programMainFun'
       }
@@ -480,7 +477,7 @@ buildGlobalSymbolTable Program {programFuncs, programExternFuns} =
     insertExternFunctions programExternFuns globalSymbolTable'
   where
     globalSymbolTable' = SymbolTable.globalSymbolTable
-    blockId = SymbolTable.currentBlockId globalSymbolTable'
+    blockId' = 0
 
     insertFunctions :: [RawFun] -> SymbolTable -> SymbolTable
     insertFunctions [] symbolTable' = symbolTable'
@@ -491,7 +488,7 @@ buildGlobalSymbolTable Program {programFuncs, programExternFuns} =
                 funTyRetTy = _funRetTy f
               }
           _funId' = _funId f
-       in insertFunctions fs (SymbolTable.insertFunToEnv blockId _funId' funTy symbolTable')
+       in insertFunctions fs (SymbolTable.insertFunToEnv blockId' _funId' funTy symbolTable')
 
     insertExternFunctions :: [RawExternFun] -> SymbolTable -> SymbolTable
     insertExternFunctions [] symbolTable' = symbolTable'
@@ -502,23 +499,19 @@ buildGlobalSymbolTable Program {programFuncs, programExternFuns} =
                 funTyRetTy = externFunRetTy ef
               }
           efId = externFunId ef
-       in insertExternFunctions efs (SymbolTable.insertFunToEnv blockId efId efTy symbolTable')
+       in insertExternFunctions efs (SymbolTable.insertFunToEnv blockId' efId efTy symbolTable')
 
 typeProgram :: RawProgram -> Either [String] (TypedProgram, SymbolTable)
 typeProgram program =
-  let initialState = makeInitialState program
+  let initialState =
+        TypingState
+          { _symbolTable = buildGlobalSymbolTable program,
+            _errors = [],
+            _curFun = Nothing,
+            _currentBlockId = 0
+          }
+
       (typedProgram, finalState) = runState (typeProgram' program) initialState
    in if null (_errors finalState)
         then Right (typedProgram, _symbolTable finalState)
         else Left (_errors finalState)
-
-makeInitialState :: RawProgram -> TypingState
-makeInitialState program =
-  let globalSymbolTable' = buildGlobalSymbolTable program
-      currentBlockId' = SymbolTable.currentBlockId globalSymbolTable'
-   in TypingState
-        { _symbolTable = globalSymbolTable',
-          _errors = [],
-          _curFun = Nothing,
-          _currentBlockId = currentBlockId'
-        }

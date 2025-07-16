@@ -48,9 +48,6 @@ incBasicBlockId = blockId %= (+ 1)
 addInstsToBlock :: [Inst] -> State TranslationState ()
 addInstsToBlock insts = currentInsts %= (++ insts)
 
-setCurBasicBlockId :: BasicBlockId -> State TranslationState ()
-setCurBasicBlockId = (curBasicBlockId .=)
-
 cfgFromBlocks :: [BasicBlock] -> CFG
 cfgFromBlocks blocks' =
   let entryBasicBlockId = case blocks' of
@@ -238,12 +235,12 @@ transStmt stmt
       st <- use symbolTable
       let symb = lookupSymbol _varDefId blockId' st
       case symb of
-        Just Symbol {_symbolStorage = Auto, _symbolTy = IntTy, _addressTaken = False} -> do
-          transExp letExp
-          t <- use tmp
-          symbolTable %= allocateTempRegister _varDefId blockId'
-          stackOp <- idToStackOperand _varDefId
-          addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+        -- Just Symbol {_symbolStorage = Auto, _symbolTy = IntTy, _addressTaken = False} -> do
+        --   transExp letExp
+        --   t <- use tmp
+        --   symbolTable %= allocateTempRegister _varDefId blockId'
+        --   stackOp <- idToStackOperand _varDefId
+        --   addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
         Just Symbol {_symbolStorage = Static} -> do
           transExp letExp
           t <- use tmp
@@ -262,6 +259,13 @@ transStmt stmt
       stackOp <- idToStackOperand assignId
       addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
   | Ast.LetArrStmt {letArrVarDef = Ast.VarDef {_varDefId}, letArrElems} <- stmt = do
+      blockId' <- use curScopedBlockId
+      st <- use symbolTable
+      let symb = lookupSymbol _varDefId blockId' st
+      case symb of
+        Just Symbol {_symbolStorage = Static} -> do
+          symbolTable %= allocateStaticSlot _varDefId blockId'
+        _ -> symbolTable %= allocateStackSlot _varDefId blockId' Auto
       foldM_
         ( \idx item -> do
             dstOp <- arrayAccess _varDefId (ConstInt idx)
@@ -314,7 +318,7 @@ transStmt stmt
           terminateBlock Jump {jumpTarget = endBasicBlockId}
           transBlock elseBasicBlockId elseBody
           terminateBlock Jump {jumpTarget = endBasicBlockId}
-          setCurBasicBlockId endBasicBlockId
+          curBasicBlockId .= endBasicBlockId
         Nothing -> do
           l <- use blockId
           incBasicBlockId
@@ -324,7 +328,7 @@ transStmt stmt
           terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = thenBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
           transBlock thenBasicBlockId ifBody
           terminateBlock Jump {jumpTarget = endBasicBlockId}
-          setCurBasicBlockId endBasicBlockId
+          curBasicBlockId .= endBasicBlockId
   | Ast.WhileStmt {whileCond, whileBody} <- stmt = do
       lcond <- use blockId
       incBasicBlockId
@@ -339,7 +343,7 @@ transStmt stmt
 
       terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      setCurBasicBlockId condBasicBlockId
+      curBasicBlockId .= condBasicBlockId
       transExp whileCond
       t <- use tmp
       terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = loopBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
@@ -347,7 +351,7 @@ transStmt stmt
       transBlock loopBasicBlockId whileBody
       terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      setCurBasicBlockId endBasicBlockId
+      curBasicBlockId .= endBasicBlockId
   | Ast.ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
       lcond <- use blockId
       incBasicBlockId
@@ -363,7 +367,7 @@ transStmt stmt
       transStmt forInit
 
       terminateBlock Jump {jumpTarget = condBasicBlockId}
-      setCurBasicBlockId condBasicBlockId
+      curBasicBlockId .= condBasicBlockId
       transExp forCond
       t <- use tmp
       terminateBlock CondJump {condOperand = TempOperand t, condTrueBasicBlockId = loopBasicBlockId, condFalseBasicBlockId = endBasicBlockId}
@@ -373,18 +377,18 @@ transStmt stmt
       transStmt forUpdate
       terminateBlock Jump {jumpTarget = condBasicBlockId}
 
-      setCurBasicBlockId endBasicBlockId
+      curBasicBlockId .= endBasicBlockId
 
 transBlock :: String -> Ast.TypedBlock -> State TranslationState ()
-transBlock blockId' Ast.Block {_blockAnnot = scopeId, _blockStmts} = do
-  setCurBasicBlockId blockId'
-  curScopedBlockId .= scopeId
+transBlock blockId' Ast.Block {Ast._blockId, _blockStmts} = do
+  curBasicBlockId .= blockId'
+  curScopedBlockId .= _blockId
   mapM_ transStmt _blockStmts
   popEnv
 
 transFun :: Ast.TypedFun -> State TranslationState Mir.Types.Fun
 transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
-  let Ast.Block {_blockAnnot} = _funBody
+  let Ast.Block {Ast._blockId} = _funBody
 
   -- Reset frame allocation for this function
   symbolTable %= resetFrameAllocation
@@ -393,7 +397,7 @@ transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
   tmp .= Temp {_tempLabel = 0}
 
   -- Set the function's environment
-  curScopedBlockId .= _blockAnnot
+  curScopedBlockId .= _blockId
 
   -- Allocate stack space for arguments
   args' <-
@@ -440,17 +444,17 @@ transExternFun :: Ast.ExternFun -> Mir.Types.ExternFun
 transExternFun Ast.ExternFun {externFunId} = Mir.Types.ExternFun {externId = externFunId}
 
 transProgram :: Ast.TypedProgram -> SymbolTable -> (Mir.Types.Program, SymbolTable)
-transProgram Ast.Program {programAnnot, programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable' = do
+transProgram Ast.Program {programFuncs, Ast.Types.programExternFuns, Ast.Types.programMainFun} symbolTable' = do
   let externFuns' = transExternFun <$> programExternFuns
   let initialState =
         TranslationState
           { _tmp = Temp {_tempLabel = 0},
-            _blockId = 0,
+            Mir.Translate._blockId = 0,
             _blocks = [],
             _symbolTable = symbolTable',
             _curBasicBlockId = "global_entry",
             _currentInsts = [],
-            _curScopedBlockId = programAnnot
+            _curScopedBlockId = 0
           }
 
   let (funs, st) =

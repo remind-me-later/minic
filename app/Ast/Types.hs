@@ -72,7 +72,7 @@ data VarDef = VarDef
   }
   deriving (Show, Eq)
 
-data Stmt ea ba
+data Stmt ea
   = ExpStmt {stmtExp :: Exp ea}
   | LetStmt
       { letVarDef :: VarDef,
@@ -99,32 +99,32 @@ data Stmt ea ba
       }
   | IfStmt
       { ifCond :: Exp ea,
-        ifBody :: Block ea ba,
-        ifElseBody :: Maybe (Block ea ba)
+        ifBody :: Block ea,
+        ifElseBody :: Maybe (Block ea)
       }
   | WhileStmt
       { whileCond :: Exp ea,
-        whileBody :: Block ea ba
+        whileBody :: Block ea
       }
   | ForStmt
-      { forInit :: Stmt ea ba,
+      { forInit :: Stmt ea,
         forCond :: Exp ea,
-        forUpdate :: Stmt ea ba,
-        forBody :: Block ea ba
+        forUpdate :: Stmt ea,
+        forBody :: Block ea
       }
   deriving (Show, Eq)
 
-data Block ea ba = Block
-  { _blockAnnot :: ba,
-    _blockStmts :: [Stmt ea ba]
+data Block ea = Block
+  { _blockId :: Int,
+    _blockStmts :: [Stmt ea]
   }
   deriving (Show, Eq)
 
-data Fun a ba = Fun
+data Fun a = Fun
   { _funId :: Id,
     _funArgs :: [VarDef],
     _funRetTy :: Ty,
-    _funBody :: Block a ba
+    _funBody :: Block a
   }
   deriving (Show, Eq)
 
@@ -135,22 +135,21 @@ data ExternFun = ExternFun
   }
   deriving (Show, Eq)
 
-data Program a ba = Program
-  { programAnnot :: ba,
-    programFuncs :: [Fun a ba],
+data Program a = Program
+  { programFuncs :: [Fun a],
     programExternFuns :: [ExternFun],
-    programMainFun :: Maybe (Fun a ba)
+    programMainFun :: Maybe (Fun a)
   }
   deriving (Show, Eq)
 
 type RawExp = Exp ()
 
-type RawStmt = Stmt () ()
+type RawStmt = Stmt ()
 
-type RawBlock = Block () ()
+type RawBlock = Block ()
 
-type RawFun = Fun () ()
+type RawFun = Fun ()
 
 type RawExternFun = ExternFun
 
-type RawProgram = Program () ()
+type RawProgram = Program ()

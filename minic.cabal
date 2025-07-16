@@ -67,8 +67,9 @@ executable minic
                     Ast.Semant 
                     Ast.Types
                     Ast.Lenses
-                    Ast.Recursion
                     SymbolTable 
+                    SymbolTable.Lenses
+                    SymbolTable.Types
                     Mir 
                     Mir.Translate
                     Mir.Types
@@ -77,7 +78,6 @@ executable minic
                     Mir.Allocation
                     Mir.CopyPropagation
                     Mir.Lenses
-                    Mir.Recursion
                     X86
                     X86.Translate
                     X86.Types

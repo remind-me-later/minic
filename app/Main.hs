@@ -14,7 +14,6 @@ import Mir.Translate qualified
 import Mir.Types qualified
 import Options.Applicative
 import SymbolTable qualified
-import Text.Parsec qualified
 import X86.Translate qualified
 
 data Command
@@ -92,7 +91,8 @@ main = do
 parseFile :: String -> IO (Either String Ast.Types.RawProgram)
 parseFile fileName = do
   contents <- readFile fileName
-  pure $ case Text.Parsec.parse Ast.Parse.program fileName contents of
+  parseResult <- Ast.Parse.program fileName contents
+  pure $ case parseResult of
     Right ast -> Right ast
     Left err -> Left $ "Parsing failed: " ++ show err
 

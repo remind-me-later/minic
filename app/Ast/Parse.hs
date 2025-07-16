@@ -1,12 +1,28 @@
-module Ast.Parse (program) where
+module Ast.Parse (program, initialParserState) where
 
 import Ast.Types
 import Control.Applicative (Alternative (many, (<|>)), optional)
 import Data.Functor (($>))
-import Text.ParserCombinators.Parsec qualified as PC
+import Text.Parsec qualified as PC
 import TypeSystem
 
-comment :: PC.Parser ()
+newtype ParserState = ParserState
+  { currentBlockIdAr :: Int -- Current block ID for generating unique IDs
+  }
+
+initialParserState :: ParserState
+initialParserState = ParserState {currentBlockIdAr = 1}
+
+getNextBlockId :: Parser Int
+getNextBlockId = do
+  state <- PC.getState
+  let currentId = currentBlockIdAr state
+  PC.setState state {currentBlockIdAr = currentId + 1}
+  return currentId
+
+type Parser = PC.ParsecT String ParserState IO
+
+comment :: Parser ()
 comment =
   PC.string "//"
     *> many (PC.satisfy (/= '\n'))
@@ -16,52 +32,52 @@ comment =
        )
 
 -- Space consumer: skips whitespace and comments
-sc :: PC.Parser ()
+sc :: Parser ()
 sc = PC.skipMany (PC.try comment <|> PC.space $> ())
 
-lex :: PC.Parser a -> PC.Parser a
+lex :: Parser a -> Parser a
 lex p = p <* sc
 
-keyword :: String -> PC.Parser String
+keyword :: String -> Parser String
 keyword kw = Ast.Parse.lex (PC.string kw)
 
-ifkw :: PC.Parser String
+ifkw :: Parser String
 ifkw = keyword "if"
 
-whilekw :: PC.Parser String
+whilekw :: Parser String
 whilekw = keyword "while"
 
-forkw :: PC.Parser String
+forkw :: Parser String
 forkw = keyword "for"
 
-elsekw :: PC.Parser String
+elsekw :: Parser String
 elsekw = keyword "else"
 
-returnkw :: PC.Parser String
+returnkw :: Parser String
 returnkw = keyword "return"
 
-symbol :: String -> PC.Parser String
+symbol :: String -> Parser String
 symbol sym = Ast.Parse.lex (PC.string sym)
 
-parens :: PC.Parser a -> PC.Parser a
+parens :: Parser a -> Parser a
 parens p = symbol "(" *> p <* symbol ")"
 
-brackets :: PC.Parser a -> PC.Parser a
+brackets :: Parser a -> Parser a
 brackets p = symbol "[" *> p <* symbol "]"
 
-braces :: PC.Parser a -> PC.Parser a
+braces :: Parser a -> Parser a
 braces p = symbol "{" *> p <* symbol "}"
 
-commaSep :: PC.Parser a -> PC.Parser [a]
+commaSep :: Parser a -> Parser [a]
 commaSep p = PC.sepBy p (symbol ",")
 
-identifier :: PC.Parser Id
+identifier :: Parser Id
 identifier =
   let isFirstChar c = c `elem` ['a' .. 'z'] ++ ['A' .. 'Z'] ++ "_"
       isOtherChar c = isFirstChar c || c `elem` ['0' .. '9']
    in Ast.Parse.lex (liftA2 (:) (PC.satisfy isFirstChar) (many (PC.satisfy isOtherChar)))
 
-basicty :: PC.Parser Ty
+basicty :: Parser Ty
 basicty = Ast.Parse.lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
   where
     parseInt = keyword "int" $> IntTy
@@ -69,7 +85,7 @@ basicty = Ast.Parse.lex (parseInt <|> parseChar <|> parseBool <|> parseVoid)
     parseBool = keyword "bool" $> BoolTy
     parseVoid = keyword "void" $> VoidTy
 
-ty :: PC.Parser Ty
+ty :: Parser Ty
 ty = do
   baseTy <- basicty
   maybePtr <- optional (symbol "*" $> PtrTy {ptrTyElemTy = baseTy})
@@ -77,12 +93,12 @@ ty = do
     Just ptrTy -> return ptrTy
     Nothing -> return baseTy
 
-num :: PC.Parser Int
+num :: Parser Int
 num =
   let isDigit c = c `elem` ['0' .. '9']
    in read <$> Ast.Parse.lex (PC.many1 (PC.satisfy isDigit))
 
-char :: PC.Parser Char
+char :: Parser Char
 char = Ast.Parse.lex $ do
   _ <- PC.char '\''
   c <- PC.try (PC.char '\\' *> escapeChar) <|> PC.satisfy validChar
@@ -100,7 +116,7 @@ char = Ast.Parse.lex $ do
           PC.char 't' $> '\t'
         ]
 
-expression :: PC.Parser RawExp
+expression :: Parser RawExp
 expression = eqexp
   where
     factor =
@@ -192,13 +208,13 @@ expression = eqexp
           return Exp {_expAnnot = (), _expInner = BinExp {binLeft, binOp, binRight}}
         Nothing -> return binLeft
 
-vardef :: PC.Parser VarDef
+vardef :: Parser VarDef
 vardef = do
   _varDefTy <- ty
   _varDefId <- identifier
   return VarDef {_varDefId, _varDefTy}
 
-letstmt :: PC.Parser RawStmt
+letstmt :: Parser RawStmt
 letstmt = do
   storageSpec <- optional storageSpecifier
   letVarDef <- vardef
@@ -206,7 +222,7 @@ letstmt = do
   letExp <- expression
   return $ LetStmt {letVarDef, letExp, letStorage = storageSpec}
 
-letarrstmt :: PC.Parser RawStmt
+letarrstmt :: Parser RawStmt
 letarrstmt = do
   storageSpec <- optional storageSpecifier
   letArrVarDef <- vardef
@@ -215,14 +231,14 @@ letarrstmt = do
   letArrElems <- braces (commaSep expression)
   return $ LetArrStmt {letArrVarDef, letArrSize, letArrElems, letArrStorage = storageSpec}
 
-assignstmt :: PC.Parser RawStmt
+assignstmt :: Parser RawStmt
 assignstmt = do
   assignId <- identifier
   _ <- symbol "="
   assignExp <- expression
   return $ AssignStmt {assignId, assignExp}
 
-assignarrstmt :: PC.Parser RawStmt
+assignarrstmt :: Parser RawStmt
 assignarrstmt = do
   assignArrId <- identifier
   assignArrIndex <- brackets expression
@@ -230,18 +246,18 @@ assignarrstmt = do
   assignArrExp <- expression
   return $ AssignArrStmt {assignArrId, assignArrIndex, assignArrExp}
 
-retstmt :: PC.Parser RawStmt
+retstmt :: Parser RawStmt
 retstmt = do
   _ <- returnkw
   returnExp <- optional expression
   return $ ReturnStmt {returnExp}
 
-expstmt :: PC.Parser RawStmt
+expstmt :: Parser RawStmt
 expstmt = do
   stmtExp <- expression
   return ExpStmt {stmtExp}
 
-semicolonStmt :: PC.Parser RawStmt
+semicolonStmt :: Parser RawStmt
 semicolonStmt = do
   parsedStatement <-
     PC.try letstmt
@@ -253,7 +269,7 @@ semicolonStmt = do
   _ <- symbol ";"
   return parsedStatement
 
-stmt :: PC.Parser RawStmt
+stmt :: Parser RawStmt
 stmt =
   PC.try ifstmt
     <|> PC.try whilestmt
@@ -286,18 +302,19 @@ stmt =
       forBody <- block
       return ForStmt {forInit, forCond, forUpdate, forBody}
 
-block :: PC.Parser RawBlock
+block :: Parser RawBlock
 block = do
   _blockStmts <- braces (many stmt)
-  return $ Block {_blockAnnot = (), _blockStmts}
+  _blockId <- getNextBlockId
+  return $ Block {_blockId, _blockStmts}
 
-storageSpecifier :: PC.Parser StorageSpecifier
+storageSpecifier :: Parser StorageSpecifier
 storageSpecifier =
   PC.try (keyword "static" $> Static)
     <|> PC.try (keyword "extern" $> Extern)
     <|> keyword "auto" $> Auto
 
-fun :: PC.Parser RawFun
+fun :: Parser RawFun
 fun = do
   _funRetTy <- ty
   _funId <- identifier
@@ -305,7 +322,7 @@ fun = do
   _funBody <- block
   return Fun {_funId, _funArgs, _funRetTy, _funBody}
 
-externfun :: PC.Parser RawExternFun
+externfun :: Parser RawExternFun
 externfun = do
   _ <- keyword "extern"
   externFunRetTy <- ty
@@ -319,13 +336,13 @@ externfun = do
         externFunRetTy
       }
 
-program :: PC.Parser RawProgram
-program = do
+program' :: Parser RawProgram
+program' = do
   _ <- sc
   defs <- many (PC.try (Left <$> fun) <|> (Right <$> externfun))
   _ <- PC.eof
 
-  let initialProgram = Program {programAnnot = (), programFuncs = [], programExternFuns = [], programMainFun = Nothing}
+  let initialProgram = Program {programFuncs = [], programExternFuns = [], programMainFun = Nothing}
   let programResult =
         foldl
           ( \acc f -> case f of
@@ -339,3 +356,10 @@ program = do
           defs
 
   return programResult
+
+program :: String -> String -> IO (Either String RawProgram)
+program fileName contents = do
+  parseResult <- PC.runParserT program' initialParserState fileName contents
+  case parseResult of
+    Right ast -> return $ Right ast
+    Left err -> return $ Left $ "Parsing failed: " ++ show err
