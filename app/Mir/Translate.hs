@@ -170,14 +170,14 @@ transExp Ast.Exp {_expAnnot = annot, _expInner}
       -- Take the address of a variable
       symb <- gets (lookupSymbolInState takeAddressId)
       case symb of
-        Just Symbol {symbolStorage = Auto} -> do
+        Just Symbol {_symbolStorage = Auto} -> do
           offset <- gets $ getStackOffsetInState takeAddressId
           case offset of
             Just off -> do
               t <- gets tmp
               modify' $ addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand off}]
             Nothing -> error $ "Variable " ++ takeAddressId ++ " not allocated on stack"
-        Just Symbol {symbolStorage = Static} -> do
+        Just Symbol {_symbolStorage = Static} -> do
           offset <- gets $ getStaticOffsetInState takeAddressId
           case offset of
             Just off -> do
@@ -236,9 +236,9 @@ transStmt stmt
       case symb of
         Just
           Symbol
-            { symbolStorage = Auto,
+            { _symbolStorage = Auto,
               _symbolTy = IntTy,
-              addressTaken = False
+              _addressTaken = False
             } -> do
             transExp letExp
             t <- gets tmp -- Get the temp containing the expression result
@@ -248,7 +248,7 @@ transStmt stmt
             modify' $ addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
         Just
           Symbol
-            { symbolStorage = Static
+            { _symbolStorage = Static
             } -> do
             transExp letExp
             t <- gets tmp -- Get the temp containing the expression result
@@ -421,7 +421,7 @@ transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
           modify' $ \s -> s {symbolTable = allocateStackSlot _varDefId blockId Argument (symbolTable s)}
           st <- gets symbolTable
           case lookupSymbol _varDefId blockId st of
-            Just s@Symbol {symbolStorage = Argument} -> return s
+            Just s@Symbol {_symbolStorage = Argument} -> return s
             _ -> error $ "Argument allocation error: " ++ _varDefId
       )
       _funArgs
@@ -433,7 +433,7 @@ transFun Ast.Fun {Ast.Types._funId, Ast.Types._funArgs, _funBody} = do
   -- FIXME: we already pass the symbol table to the x86 translator so this is useless
   let locals =
         filter
-          ( \Symbol {symbolStorage} -> case symbolStorage of
+          ( \Symbol {_symbolStorage} -> case _symbolStorage of
               Auto -> True
               _ -> False
           )

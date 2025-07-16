@@ -67,6 +67,7 @@ executable minic
                     Ast.Semant 
                     Ast.Types
                     Ast.Lenses
+                    Ast.Recursion
                     SymbolTable 
                     Mir 
                     Mir.Translate
@@ -90,6 +91,7 @@ executable minic
                         , mtl >= 2.3
                         , optparse-applicative >= 0.19
                         , lens >= 5.3
+                        , recursion-schemes >= 5.2
 
     -- Directories containing source files.
     hs-source-dirs:   app app/Mir app/Ast app/X86
