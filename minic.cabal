@@ -36,8 +36,8 @@ library
     default-extensions: Strict
 
     -- Other library packages from which modules are imported.
-    build-depends:    base >= 4.17
-                        , containers >= 0.6
+    build-depends:    base >= 4.21
+                        , containers >= 0.7
                         , parsec >= 3.1
                         , mtl >= 2.3
                         , lens >= 5.3
@@ -51,9 +51,9 @@ executable minic
     import:           warnings
     main-is:          Main.hs
     default-extensions: Strict
-    build-depends:    base >= 4.17
+    build-depends:    base >= 4.21
                         , optparse-applicative >= 0.19
-                        , containers >= 0.6
+                        , containers >= 0.7
                         , minic
     hs-source-dirs:   app
     default-language: GHC2021
