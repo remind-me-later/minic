@@ -141,15 +141,15 @@ expression = eqexp
         callexp = do
           callId <- identifier
           callArgs <- parens (commaSep expression)
-          return Exp {_expAnnot = (), _expInner = Call {callId, callArgs}}
+          return Exp {_expAnnot = (), _expInner = CallExp {callId, callArgs}}
         arraccess = do
           arrId <- identifier
           arrIndex <- brackets expression
-          return Exp {_expAnnot = (), _expInner = ArrAccess {arrId, arrIndex}}
+          return Exp {_expAnnot = (), _expInner = ArrAccessExp {arrId, arrIndex}}
         takeAddress = do
           _ <- symbol "&"
           takeAddressId <- identifier
-          return Exp {_expAnnot = (), _expInner = TakeAddress {takeAddressId}}
+          return Exp {_expAnnot = (), _expInner = TakeAddressExp {takeAddressId}}
 
     unaryexp = do
       op <-

@@ -20,6 +20,7 @@ import Control.Monad (forM_, unless, when)
 import Control.Monad.State (State, runState)
 import Mir.Types qualified as Mir
 import SymbolTable (Symbol (..), SymbolTable (..), dataList, listExternFunctions)
+import SymbolTable.Lenses
 import TypeSystem (sizeOf)
 import TypeSystem qualified (BinOp (..), UnaryOp (..))
 import X86.Types
@@ -73,17 +74,17 @@ makeFileHeader symbolTable =
     statics =
       concatMap
         ( ( \sym -> case sym of
-              ArgSymbol {_argSymbolId, _argSymbolTy, _argSymbolStorage} ->
+              a@ArgSymbol {} ->
                 ".global "
-                  ++ _argSymbolId
+                  ++ a ^. argSymbolId
                   ++ "\n"
                   ++ ".type "
-                  ++ _argSymbolId
+                  ++ a ^. argSymbolId
                   ++ ", @object\n"
-                  ++ _argSymbolId
+                  ++ a ^. argSymbolId
                   ++ ":\n"
                   ++ ".zero "
-                  ++ show (sizeOf _argSymbolTy)
+                  ++ show (sizeOf (_argSymbolTy a))
                   ++ "\n"
               _ -> error "Unsupported symbol type in makeFileHeader"
           )

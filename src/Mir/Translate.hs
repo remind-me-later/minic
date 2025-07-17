@@ -5,6 +5,7 @@
 
 module Mir.Translate (transProgram) where
 
+import Ast.Lenses
 import Ast.Types
 import Control.Lens
 import Control.Monad (foldM, foldM_, unless)
@@ -18,7 +19,7 @@ import TypeSystem (BinOp (..), Id, StorageSpecifier (..), Ty (..), sizeOf)
 
 data TranslationState = TranslationState
   { _tmp :: Temp,
-    _blockId :: Int,
+    _tsBlockId :: Int,
     _curBasicBlockId :: BasicBlockId,
     _currentInsts :: [Inst],
     _blocks :: [BasicBlock],
@@ -30,15 +31,15 @@ makeLenses ''TranslationState
 
 idToStackOperand :: Id -> State TranslationState Operand
 idToStackOperand varId = do
-  blockId' <- use curScopedBlockId
+  tsBlockId' <- use curScopedBlockId
   st <- use symbolTable
-  case getTempRegister varId blockId' st of
-    Just tempId -> return $ TempOperand (Temp {_tempLabel = tempId})
+  case getTempRegister varId tsBlockId' st of
+    Just tempId -> return $ TempOperand (Temp tempId)
     Nothing -> do
-      case getStackOffset varId blockId' st of
+      case getStackOffset varId tsBlockId' st of
         Just offset -> return $ StackOperand offset
         Nothing ->
-          case getStaticOffset varId blockId' st of
+          case getStaticOffset varId tsBlockId' st of
             Just offset -> return $ DataOperand offset
             Nothing -> error $ "Variable " ++ varId ++ " not allocated"
 
@@ -46,7 +47,7 @@ incTmp :: State TranslationState ()
 incTmp = tmp . tempLabel %= (+ 1)
 
 incBasicBlockId :: State TranslationState ()
-incBasicBlockId = blockId %= (+ 1)
+incBasicBlockId = tsBlockId %= (+ 1)
 
 addInstsToBlock :: [Inst] -> State TranslationState ()
 addInstsToBlock insts = currentInsts %= (++ insts)
@@ -88,62 +89,66 @@ popEnv = do
 lookupSymbolInState :: Id -> State TranslationState Symbol
 lookupSymbolInState identifier = do
   st <- use symbolTable
-  blockId' <- use curScopedBlockId
-  case lookupSymbol identifier blockId' st of
+  tsBlockId' <- use curScopedBlockId
+  case lookupSymbol identifier tsBlockId' st of
     Just symb -> return symb
     Nothing -> error $ "Symbol " ++ identifier ++ " not found in the symbol table"
 
 transExp :: TypedExp -> State TranslationState ()
-transExp Exp {_expAnnot = annot, _expInner}
-  | IdExp {idName} <- _expInner = do
+transExp expOuter
+  | IdExp {idName} <- expInner' = do
       t <- use tmp
       stackOp <- idToStackOperand idName
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | NumberExp {numberValue} <- _expInner = do
+  | NumberExp {numberValue} <- expInner' = do
       t <- use tmp
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstInt numberValue}]
-  | CharExp {charValue} <- _expInner = do
+  | CharExp {charValue} <- expInner' = do
       t <- use tmp
       addInstsToBlock [Assign {instDst = TempOperand t, instSrc = ConstChar charValue}]
-  | BinExp {binLeft = binLeft@Exp {_expInner = binLeftInner}, binOp, binRight = binRight@Exp {_expInner = binRightInner}} <- _expInner = do
-      case (binLeftInner, binRightInner) of
-        (NumberExp {numberValue = l}, NumberExp {numberValue = r}) -> do
+  | BinExp {binLeft, binOp, binRight} <- expInner' =
+      let binLeftInner = binLeft ^. expInner
+          binRightInner = binRight ^. expInner
+       in case (binLeftInner, binRightInner) of
+            (NumberExp {numberValue = l}, NumberExp {numberValue = r}) -> do
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = ConstInt r}]
+            (NumberExp {numberValue = l}, _) -> do
+              transExp binRight
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = TempOperand t}]
+            (_, NumberExp {numberValue = r}) -> do
+              transExp binLeft
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstInt r}]
+            (CharExp {charValue = l}, CharExp {charValue = r}) -> do
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = ConstChar r}]
+            (CharExp {charValue = l}, _) -> do
+              transExp binRight
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = TempOperand t}]
+            (_, CharExp {charValue = r}) -> do
+              transExp binLeft
+              t <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstChar r}]
+            _ -> do
+              transExp binLeft
+              lt <- use tmp
+              incTmp
+              transExp binRight
+              rt <- use tmp
+              addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
+  | UnaryExp {unaryOp, unaryExp} <- expInner' =
+      case unaryExp ^. expInner of
+        NumberExp {numberValue} -> do
           t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = ConstInt r}]
-        (NumberExp {numberValue = l}, _) -> do
-          transExp binRight
-          t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstInt l, instRight = TempOperand t}]
-        (_, NumberExp {numberValue = r}) -> do
-          transExp binLeft
-          t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstInt r}]
-        (CharExp {charValue = l}, CharExp {charValue = r}) -> do
-          t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = ConstChar r}]
-        (CharExp {charValue = l}, _) -> do
-          transExp binRight
-          t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = ConstChar l, instRight = TempOperand t}]
-        (_, CharExp {charValue = r}) -> do
-          transExp binLeft
-          t <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = binOp, instLeft = TempOperand t, instRight = ConstChar r}]
+          addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
         _ -> do
-          transExp binLeft
-          lt <- use tmp
-          incTmp
-          transExp binRight
-          rt <- use tmp
-          addInstsToBlock [BinOp {instDst = TempOperand rt, instBinop = binOp, instLeft = TempOperand lt, instRight = TempOperand rt}]
-  | UnaryExp {unaryOp, unaryExp = Exp {_expInner = NumberExp {numberValue}}} <- _expInner = do
-      t <- use tmp
-      addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = ConstInt numberValue}]
-  | UnaryExp {unaryOp, unaryExp} <- _expInner = do
-      transExp unaryExp
-      t <- use tmp
-      addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
-  | Ast.Types.Call {callId, callArgs} <- _expInner = do
+          transExp unaryExp
+          t <- use tmp
+          addInstsToBlock [UnaryOp {instDst = TempOperand t, instUnop = unaryOp, instSrc = TempOperand t}]
+  | CallExp {callId, callArgs} <- expInner' = do
       mapM_
         ( \arg -> do
             transExp arg
@@ -152,23 +157,24 @@ transExp Exp {_expAnnot = annot, _expInner}
             addInstsToBlock [Param {paramOperand = TempOperand t}]
         )
         callArgs
-      case annot of
+      case expAnnot' of
         VoidTy -> do
           addInstsToBlock [Mir.Types.Call {callRet = Nothing, callFunId = callId, callArgCount = length callArgs}]
         _ -> do
           t <- use tmp
           addInstsToBlock [Mir.Types.Call {callRet = Just (TempOperand t), callFunId = callId, callArgCount = length callArgs}]
-  | ArrAccess {arrId, arrIndex = Exp {_expInner = NumberExp {numberValue}}} <- _expInner = do
-      let idx = ConstInt numberValue
-      stackOp <- arrayAccess arrId idx
-      t <- use tmp
-      addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | ArrAccess {arrId, arrIndex} <- _expInner = do
-      transExp arrIndex
-      t <- use tmp
-      stackOp <- arrayAccess arrId (TempOperand t)
-      addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
-  | TakeAddress {takeAddressId} <- _expInner = do
+  | ArrAccessExp {arrId, arrIndex} <- expInner' = do
+      case arrIndex ^. expInner of
+        NumberExp {numberValue} -> do
+          stackOp <- arrayAccess arrId (ConstInt numberValue)
+          t <- use tmp
+          addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
+        _ -> do
+          transExp arrIndex
+          t <- use tmp
+          stackOp <- arrayAccess arrId (TempOperand t)
+          addInstsToBlock [Assign {instDst = TempOperand t, instSrc = stackOp}]
+  | TakeAddressExp {takeAddressId} <- expInner' = do
       symb <- lookupSymbolInState takeAddressId
       case symb of
         ArgSymbol {_argSymbolStorage} -> do
@@ -178,99 +184,122 @@ transExp Exp {_expAnnot = annot, _expInner}
               addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand offset}]
         VarSymbol {_varSymbolStorage} -> do
           case _varSymbolStorage of
-            Nothing -> error $ "Take address error for variable: " ++ takeAddressId
-            Just (VarStatic offset) -> do
+            (VarStatic offset) -> do
               t <- use tmp
               addInstsToBlock [Assign {instDst = TempOperand t, instSrc = DataOperand offset}]
-            Just (VarAutoStack offset) -> do
+            (VarAutoStack offset) -> do
               t <- use tmp
               addInstsToBlock [Assign {instDst = TempOperand t, instSrc = StackOperand offset}]
-            Just (VarAutoTemp tempId) -> do
+            (VarAutoTemp tempId) -> do
               error $ "Take address error for temporary variable: " ++ takeAddressId ++ " with tempId: " ++ show tempId
         FunSymbol {} -> error $ "Take address error for function: " ++ takeAddressId
+  where
+    expInner' = expOuter ^. expInner
+    expAnnot' = expOuter ^. expAnnot
 
 arrayAccess :: Id -> Operand -> State TranslationState Operand
 arrayAccess arrId (ConstInt idx) = do
   symb <- lookupSymbolInState arrId
   case symb of
-    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
-      let elemSize = sizeOf arrTyElemTy
-      return $ StackOperand (varSymbolStorageStackOffset + idx * elemSize)
-    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
-      let elemSize = sizeOf arrTyElemTy
-      return $ DataOperand (varSymbolStorageStaticOffset + idx * elemSize)
-    VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
-      error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
+    varSymbol@VarSymbol {} -> do
+      case _varSymbolTy varSymbol of
+        ArrTy {arrTyElemTy} -> do
+          let elemSize = sizeOf arrTyElemTy
+          case _varSymbolStorage varSymbol of
+            (VarAutoStack {varSymbolStorageStackOffset}) -> do
+              return $ StackOperand (varSymbolStorageStackOffset + idx * elemSize)
+            (VarStatic {varSymbolStorageStaticOffset}) -> do
+              return $ DataOperand (varSymbolStorageStaticOffset + idx * elemSize)
+            (VarAutoTemp {varSymbolStorageTempRegister}) -> do
+              error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
+        _ -> error $ "Array access error for non-array variable: " ++ arrId
     FunSymbol {} -> error $ "Array access error for function: " ++ arrId
     ArgSymbol {} -> do
       -- unsupported
       error $ "Array access for argument: " ++ arrId ++ " is not supported"
-    _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId (TempOperand idxTemp) = do
   symb <- lookupSymbolInState arrId
   case symb of
-    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarAutoStack {varSymbolStorageStackOffset}} -> do
-      let elemSize = sizeOf arrTyElemTy
-      t <- use tmp
-      incTmp
-      addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
-      addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStackOffset}]
-      return $ TempOperand t
-    VarSymbol {_varSymbolTy = ArrTy {arrTyElemTy}, _varSymbolStorage = Just VarStatic {varSymbolStorageStaticOffset}} -> do
-      let elemSize = sizeOf arrTyElemTy
-      t <- use tmp
-      incTmp
-      addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
-      addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStaticOffset}]
-      return $ TempOperand t
-    VarSymbol {_varSymbolTy = ArrTy {}, _varSymbolStorage = Just VarAutoTemp {varSymbolStorageTempRegister}} -> do
-      error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
+    varSymbol@VarSymbol {} ->
+      case _varSymbolTy varSymbol of
+        ArrTy {arrTyElemTy} -> do
+          let elemSize = sizeOf arrTyElemTy
+          case _varSymbolStorage varSymbol of
+            (VarAutoStack {varSymbolStorageStackOffset}) -> do
+              t <- use tmp
+              incTmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStackOffset}]
+              return $ TempOperand t
+            (VarStatic {varSymbolStorageStaticOffset}) -> do
+              t <- use tmp
+              incTmp
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Mul, instLeft = TempOperand idxTemp, instRight = ConstInt elemSize}]
+              addInstsToBlock [BinOp {instDst = TempOperand t, instBinop = Add, instLeft = TempOperand t, instRight = ConstInt varSymbolStorageStaticOffset}]
+              return $ TempOperand t
+            (VarAutoTemp {varSymbolStorageTempRegister}) -> do
+              error $ "Array access error for temporary variable: " ++ arrId ++ " with tempId: " ++ show varSymbolStorageTempRegister
+        _ -> error $ "Array access error for non-array variable: " ++ arrId
     FunSymbol {} -> error $ "Array access error for function: " ++ arrId
     ArgSymbol {} -> do
       -- unsupported
       error $ "Array access for argument: " ++ arrId ++ " is not supported"
-    _ -> error $ "Array access error for: " ++ arrId
 arrayAccess arrId _ = error $ "Invalid array access for: " ++ arrId
 
 transStmt :: TypedStmt -> State TranslationState ()
 transStmt stmt
   | ExpStmt {stmtExp} <- stmt = transExp stmtExp
-  | LetStmt {letVarDef = VarDef {_varDefId}, letExp} <- stmt = do
-      blockId' <- use curScopedBlockId
-      symb <- lookupSymbolInState _varDefId
-      case symb of
-        VarSymbol {_varAddressTaken = False, _varSymbolTy = IntTy} -> do
-          transExp letExp
-          t <- use tmp
-          symbolTable %= allocateTempRegister _varDefId blockId'
-          stackOp <- idToStackOperand _varDefId
-          addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-        VarSymbol {} -> do
-          transExp letExp
-          t <- use tmp
-          symbolTable %= allocateStaticSlot _varDefId blockId'
-          stackOp <- idToStackOperand _varDefId
-          addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-        FunSymbol {} -> do
-          error $ "Let statement error for function: " ++ _varDefId
-        ArgSymbol {} -> do
-          -- unsupported
-          error $ "Let statement for argument: " ++ _varDefId ++ " is not supported"
+  | LetStmt {letVarDef, letExp} <- stmt =
+      let varDefId' = letVarDef ^. varDefId
+       in do
+            tsBlockId' <- use curScopedBlockId
+            symb <- lookupSymbolInState varDefId'
+            case symb of
+              varSymbol@VarSymbol {} ->
+                case _varSymbolStorage varSymbol of
+                  VarAutoStack {} -> do
+                    case _varAddressTaken varSymbol of
+                      False -> do
+                        transExp letExp
+                        t <- use tmp
+                        symbolTable %= allocateTempRegister varDefId' tsBlockId'
+                        stackOp <- idToStackOperand varDefId'
+                        addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+                      True -> do
+                        transExp letExp
+                        t <- use tmp
+                        symbolTable %= allocateAutoVarStackSlot varDefId' tsBlockId'
+                        stackOp <- idToStackOperand varDefId'
+                        addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+                  VarAutoTemp {} -> do
+                    error $ "Internal error: Decision about temporary variable: " ++ varDefId' ++ " should be made during translation"
+                  VarStatic {} -> do
+                    transExp letExp
+                    t <- use tmp
+                    symbolTable %= allocateStaticSlot varDefId' tsBlockId'
+                    stackOp <- idToStackOperand varDefId'
+                    addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+              -- The type checker should catch these cases:
+              FunSymbol {} -> do
+                error $ "Let statement error for function: " ++ varDefId'
+              ArgSymbol {} -> do
+                -- unsupported
+                error $ "Let statement for argument: " ++ varDefId' ++ " is not supported"
   | AssignStmt {assignId, assignExp} <- stmt = do
       transExp assignExp
       t <- use tmp
       stackOp <- idToStackOperand assignId
       addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
   | LetArrStmt {letArrVarDef = VarDef {_varDefId}, letArrElems, letArrStorage} <- stmt = do
-      blockId' <- use curScopedBlockId
+      tsBlockId' <- use curScopedBlockId
 
       case letArrStorage of
         Just Auto -> do
-          symbolTable %= allocateAutoVarStackSlot _varDefId blockId'
+          symbolTable %= allocateAutoVarStackSlot _varDefId tsBlockId'
         Nothing -> do
-          symbolTable %= allocateAutoVarStackSlot _varDefId blockId'
+          symbolTable %= allocateAutoVarStackSlot _varDefId tsBlockId'
         Just Static -> do
-          symbolTable %= allocateStaticSlot _varDefId blockId'
+          symbolTable %= allocateStaticSlot _varDefId tsBlockId'
         Just Extern ->
           -- unsupported
           error $ "LetArrStmt for Extern storage is not supported: " ++ _varDefId
@@ -307,17 +336,17 @@ transStmt stmt
           terminateBlock (Return {retOperand = Just (TempOperand t)})
         Nothing -> terminateBlock (Return {retOperand = Nothing})
   | IfStmt {ifCond, ifBody, ifElseBody} <- stmt = do
-      lthen <- use blockId
+      lthen <- use tsBlockId
       incBasicBlockId
       let thenBasicBlockId = "IL" ++ show lthen
       transExp ifCond
 
       case ifElseBody of
         Just elseBody -> do
-          lelse <- use blockId
+          lelse <- use tsBlockId
           incBasicBlockId
           let elseBasicBlockId = "IL" ++ show lelse
-          lend <- use blockId
+          lend <- use tsBlockId
           incBasicBlockId
           let endBasicBlockId = "IL" ++ show lend
 
@@ -329,7 +358,7 @@ transStmt stmt
           terminateBlock Jump {jumpTarget = endBasicBlockId}
           curBasicBlockId .= endBasicBlockId
         Nothing -> do
-          l <- use blockId
+          l <- use tsBlockId
           incBasicBlockId
           let endBasicBlockId = "if_end_" ++ show l
 
@@ -339,13 +368,13 @@ transStmt stmt
           terminateBlock Jump {jumpTarget = endBasicBlockId}
           curBasicBlockId .= endBasicBlockId
   | WhileStmt {whileCond, whileBody} <- stmt = do
-      lcond <- use blockId
+      lcond <- use tsBlockId
       incBasicBlockId
       let condBasicBlockId = "WL" ++ show lcond
-      lwhile <- use blockId
+      lwhile <- use tsBlockId
       incBasicBlockId
       let loopBasicBlockId = "WL" ++ show lwhile
-      lend <- use blockId
+      lend <- use tsBlockId
       incBasicBlockId
       let endBasicBlockId = "WL" ++ show lend
       incBasicBlockId
@@ -362,13 +391,13 @@ transStmt stmt
 
       curBasicBlockId .= endBasicBlockId
   | ForStmt {forInit, forCond, forUpdate, forBody} <- stmt = do
-      lcond <- use blockId
+      lcond <- use tsBlockId
       incBasicBlockId
       let condBasicBlockId = "FL" ++ show lcond
-      linc <- use blockId
+      linc <- use tsBlockId
       incBasicBlockId
       let loopBasicBlockId = "FL" ++ show linc
-      lend <- use blockId
+      lend <- use tsBlockId
       incBasicBlockId
       let endBasicBlockId = "FL" ++ show lend
       incBasicBlockId
@@ -389,8 +418,8 @@ transStmt stmt
       curBasicBlockId .= endBasicBlockId
 
 transBlock :: String -> TypedBlock -> State TranslationState ()
-transBlock blockId' Block {Ast.Types._blockId, _blockStmts} = do
-  curBasicBlockId .= blockId'
+transBlock tsBlockId' Block {Ast.Types._blockId, _blockStmts} = do
+  curBasicBlockId .= tsBlockId'
   curScopedBlockId .= _blockId
   mapM_ transStmt _blockStmts
   popEnv
@@ -434,7 +463,7 @@ transProgram
     let initialState =
           TranslationState
             { _tmp = Temp {_tempLabel = 0},
-              Mir.Translate._blockId = 0,
+              Mir.Translate._tsBlockId = 0,
               _blocks = [],
               _symbolTable = symbolTable',
               _curBasicBlockId = "global_entry",

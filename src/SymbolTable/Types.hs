@@ -49,7 +49,7 @@ data Symbol
   = VarSymbol
       { _varSymbolId :: Id,
         _varSymbolTy :: Ty,
-        _varSymbolStorage :: Maybe VarSymbolStorage,
+        _varSymbolStorage :: VarSymbolStorage,
         _varAddressTaken :: Bool
       }
   | ArgSymbol

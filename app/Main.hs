@@ -1,7 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
 
-module Main where
-
 import Ast.Parse qualified
 import Ast.Semant qualified
 import Ast.Types qualified

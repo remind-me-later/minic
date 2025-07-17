@@ -48,15 +48,15 @@ data ExpInner ea
   | IdExp
       { idName :: Id
       }
-  | Call
+  | CallExp
       { callId :: Id,
         callArgs :: [Exp ea]
       }
-  | ArrAccess
+  | ArrAccessExp
       { arrId :: Id,
         arrIndex :: Exp ea
       }
-  | TakeAddress
+  | TakeAddressExp
       { takeAddressId :: Id
       }
   deriving (Eq)
@@ -67,9 +67,9 @@ instance (Show ea) => Show (ExpInner ea) where
   show (NumberExp num) = show num
   show (CharExp char) = "'" ++ [char] ++ "'"
   show (IdExp identifier) = identifier
-  show (Call identifier args) = identifier ++ "(" ++ unwords (map show args)
-  show (ArrAccess identifier index) = identifier ++ "[" ++ show index ++ "]"
-  show (TakeAddress identifier) = "&" ++ identifier
+  show (CallExp identifier args) = identifier ++ "(" ++ unwords (map show args)
+  show (ArrAccessExp identifier index) = identifier ++ "[" ++ show index ++ "]"
+  show (TakeAddressExp identifier) = "&" ++ identifier
 
 data VarDef = VarDef
   { _varDefId :: Id,

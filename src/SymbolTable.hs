@@ -81,13 +81,13 @@ lookupSymbol identifier blockId' st =
       parentId <- env ^. parentBlockId
       lookupSymbol identifier parentId st
 
-insertVar :: VarDef -> BlockId -> SymbolTable -> SymbolTable
-insertVar varDef blockId' st =
+insertVar :: VarDef -> VarSymbolStorage -> BlockId -> SymbolTable -> SymbolTable
+insertVar varDef varSymbolStorage' blockId' st =
   let newSymbol =
         VarSymbol
           { _varSymbolId = varDef ^. varDefId,
             _varSymbolTy = varDef ^. varDefTy,
-            _varSymbolStorage = Nothing,
+            _varSymbolStorage = varSymbolStorage',
             _varAddressTaken = False
           }
    in st & blockEnvs . ix blockId' . envSymbolMap . at (varDef ^. varDefId) ?~ newSymbol
@@ -135,7 +135,7 @@ getStackOffset identifier blockId' st = do
   case symb of
     Just symb' -> case symb' of
       VarSymbol {_varSymbolStorage} ->
-        _varSymbolStorage >>= \case
+        case _varSymbolStorage of
           (VarAutoStack offset) -> Just offset
           _ -> Nothing
       ArgSymbol {_argSymbolStorage} -> Just $ argSymbolStorageOffset _argSymbolStorage
@@ -154,7 +154,7 @@ getTempRegister identifier blockId' st = do
     Just symb' ->
       case symb' of
         VarSymbol {_varSymbolStorage} ->
-          _varSymbolStorage >>= \case
+          case _varSymbolStorage of
             (VarAutoTemp tempReg) -> Just tempReg
             _ -> Nothing
         ArgSymbol {_argSymbolStorage} -> Nothing -- Arguments do not have temp registers
@@ -171,7 +171,7 @@ getStaticOffset identifier blockId' st = do
   case symb of
     Just symb' -> case symb' of
       VarSymbol {_varSymbolStorage} ->
-        _varSymbolStorage >>= \case
+        case _varSymbolStorage of
           (VarStatic offset) -> Just offset
           _ -> Nothing
       ArgSymbol {_argSymbolStorage} -> Nothing -- Arguments do not have static offsets
@@ -210,18 +210,16 @@ allocateAutoVarStackSlot identifier blockId' st =
       case symbol of
         s@VarSymbol {_varSymbolStorage} ->
           case _varSymbolStorage of
-            Nothing ->
+            VarAutoStack _ ->
               let size = sizeOf (_varSymbolTy s)
                   newOffset = st ^. currentLocalOffset - size
-                  updatedSymbol = symbol & varSymbolStorage ?~ VarAutoStack newOffset
+                  updatedSymbol = symbol & varSymbolStorage .~ VarAutoStack newOffset
                in st
                     & blockEnvs . ix blockId' . envSymbolMap . ix identifier .~ updatedSymbol
                     & currentLocalOffset .~ newOffset
-            Just (VarAutoStack _) ->
-              error $ "Symbol " ++ identifier ++ " already has an auto stack slot allocated."
-            Just (VarStatic _) ->
+            (VarStatic _) ->
               error $ "Cannot allocate auto stack slot for static symbol: " ++ identifier
-            Just (VarAutoTemp _) ->
+            (VarAutoTemp _) ->
               error $ "Cannot allocate auto stack slot for temp symbol: " ++ identifier
         ArgSymbol {_argSymbolStorage} -> error $ "Cannot allocate auto stack slot for argument symbol: " ++ show identifier
         FunSymbol {} -> error $ "Cannot allocate auto stack slot for function symbol: " ++ show identifier
@@ -234,18 +232,16 @@ allocateTempRegister identifier blockId' st =
       case symbol of
         VarSymbol {_varSymbolStorage} ->
           case _varSymbolStorage of
-            Nothing ->
+            VarAutoTemp _ ->
               let tempId = st ^. nextTempId
-                  updatedSymbol = symbol & varSymbolStorage ?~ VarAutoTemp tempId
+                  updatedSymbol = symbol & varSymbolStorage .~ VarAutoTemp tempId
                in st
                     & blockEnvs . ix blockId' . envSymbolMap . ix identifier .~ updatedSymbol
                     & nextTempId %~ (+ 1)
-            Just (VarAutoStack _) ->
+            (VarAutoStack _) ->
               error $ "Cannot allocate temp register for auto stack symbol: " ++ identifier
-            Just (VarStatic _) ->
+            (VarStatic _) ->
               error $ "Cannot allocate temp register for static symbol: " ++ identifier
-            Just (VarAutoTemp _) ->
-              error $ "Symbol " ++ identifier ++ " already has a temp register allocated."
         ArgSymbol {_argSymbolStorage} -> error $ "Cannot allocate temp register for argument symbol: " ++ show identifier
         FunSymbol {} -> error $ "Cannot allocate temp register for function symbol: " ++ show identifier
     Nothing -> error $ "Symbol " ++ identifier ++ " not found in block " ++ show blockId'
@@ -257,19 +253,17 @@ allocateStaticSlot identifier blockId' st =
       case symbol of
         VarSymbol {_varSymbolStorage} ->
           case _varSymbolStorage of
-            Nothing ->
+            VarStatic _ ->
               let size = sizeOf (_varSymbolTy symbol)
                   offset = st ^. staticDataSize
-                  updatedSymbol = symbol & varSymbolStorage ?~ VarStatic offset
+                  updatedSymbol = symbol & varSymbolStorage .~ VarStatic offset
                in st
                     & blockEnvs . ix blockId' . envSymbolMap . ix identifier .~ updatedSymbol
                     & dataEnv . envSymbolMap . at identifier ?~ updatedSymbol
                     & staticDataSize %~ (+ size)
-            Just (VarStatic offset) ->
-              error $ "Symbol " ++ identifier ++ " already has a static slot at offset " ++ show offset
-            Just (VarAutoStack _) ->
+            (VarAutoStack _) ->
               error $ "Cannot allocate static slot for auto stack symbol: " ++ identifier
-            Just (VarAutoTemp _) ->
+            (VarAutoTemp _) ->
               error $ "Cannot allocate static slot for auto temp symbol: " ++ identifier
         ArgSymbol {_argSymbolStorage} -> error $ "Cannot allocate static slot for argument symbol: " ++ show identifier
         FunSymbol {} -> error $ "Cannot allocate static slot for function symbol: " ++ show identifier

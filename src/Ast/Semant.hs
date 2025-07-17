@@ -17,6 +17,7 @@ import Control.Monad (when)
 import Control.Monad.State (State, runState)
 import SymbolTable (BlockId, Symbol (..), SymbolTable)
 import SymbolTable qualified
+import SymbolTable.Types (VarSymbolStorage (VarAutoStack, VarStatic))
 import TypeSystem
 
 data TypingState = TypingState
@@ -31,10 +32,10 @@ makeLenses ''TypingState
 addErrorInState :: String -> State TypingState ()
 addErrorInState err = errors %= (err :)
 
-insertVarInState :: VarDef -> State TypingState ()
-insertVarInState varDef = do
+insertVarInState :: VarDef -> VarSymbolStorage -> State TypingState ()
+insertVarInState varDef varSymbolStorage' = do
   curBlockId <- use currentBlockId
-  symbolTable %= SymbolTable.insertVar varDef curBlockId
+  symbolTable %= SymbolTable.insertVar varDef varSymbolStorage' curBlockId
 
 insertArgInState :: VarDef -> State TypingState ()
 insertArgInState varDef = do
@@ -205,7 +206,7 @@ typeExp expression = case expression ^. expInner of
     unaryExp' <- typeExp unaryExp
     opTy <- typeUnaryOp unaryOp unaryExp'
     return Exp {_expAnnot = opTy, _expInner = UnaryExp unaryOp unaryExp'}
-  Call {callId, callArgs} -> do
+  CallExp {callId, callArgs} -> do
     symb <- lookupSymbolInState callId
     callArgs' <- mapM typeExp callArgs
 
@@ -229,21 +230,21 @@ typeExp expression = case expression ^. expInner of
         return
           Exp
             { _expAnnot = funTyRetTy,
-              _expInner = Call {callId, callArgs = callArgs'}
+              _expInner = CallExp {callId, callArgs = callArgs'}
             }
       Just FunSymbol {_funSymbolTy} -> do
         addErrorInState ("Internal error: expected function type, got " ++ show _funSymbolTy)
-        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
+        return $ annotateIllegalExpAsVoid (CallExp {callId, callArgs = callArgs'})
       Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
         addErrorInState ("Cannot call variable: " ++ callId ++ " of type: " ++ show _varSymbolTy)
-        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
+        return $ annotateIllegalExpAsVoid (CallExp {callId, callArgs = callArgs'})
       Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
         addErrorInState ("Cannot call argument: " ++ callId ++ " of type: " ++ show _argSymbolTy)
-        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
+        return $ annotateIllegalExpAsVoid (CallExp {callId, callArgs = callArgs'})
       Nothing -> do
         addErrorInState ("Undefined function: " ++ callId)
-        return $ annotateIllegalExpAsVoid (Call {callId, callArgs = callArgs'})
-  ArrAccess {arrId, arrIndex} -> do
+        return $ annotateIllegalExpAsVoid (CallExp {callId, callArgs = callArgs'})
+  ArrAccessExp {arrId, arrIndex} -> do
     symb <- lookupSymbolInState arrId
     arrIndex' <- typeExp arrIndex
     let arrIndexTy = arrIndex' ^. expAnnot
@@ -255,11 +256,11 @@ typeExp expression = case expression ^. expInner of
         return
           Exp
             { _expAnnot = arrTyElemTy,
-              _expInner = ArrAccess {arrId, arrIndex = arrIndex'}
+              _expInner = ArrAccessExp {arrId, arrIndex = arrIndex'}
             }
       Just VarSymbol {_varSymbolTy} -> do
         addErrorInState ("Cannot access array element of variable: " ++ arrId ++ " of type: " ++ show _varSymbolTy)
-        return $ annotateIllegalExpAsVoid (ArrAccess {arrId, arrIndex = arrIndex'})
+        return $ annotateIllegalExpAsVoid (ArrAccessExp {arrId, arrIndex = arrIndex'})
       -- TODO: passing arrays as arguments is not supported yet
       Just ArgSymbol {} -> do
         when (arrIndexTy /= IntTy) $
@@ -267,35 +268,35 @@ typeExp expression = case expression ^. expInner of
         return
           Exp
             { _expAnnot = VoidTy,
-              _expInner = ArrAccess {arrId, arrIndex = arrIndex'}
+              _expInner = ArrAccessExp {arrId, arrIndex = arrIndex'}
             }
       Just FunSymbol {_funSymbolTy} -> do
         addErrorInState ("Cannot access array element of function: " ++ arrId ++ " of type: " ++ show _funSymbolTy)
-        return $ annotateIllegalExpAsVoid (ArrAccess {arrId, arrIndex = arrIndex'})
+        return $ annotateIllegalExpAsVoid (ArrAccessExp {arrId, arrIndex = arrIndex'})
       Nothing -> do
         addErrorInState ("Undefined variable: " ++ arrId)
-        return $ annotateIllegalExpAsVoid (ArrAccess {arrId, arrIndex = arrIndex'})
-  TakeAddress {takeAddressId} -> do
+        return $ annotateIllegalExpAsVoid (ArrAccessExp {arrId, arrIndex = arrIndex'})
+  TakeAddressExp {takeAddressId} -> do
     symb <- lookupSymbolInState takeAddressId
     case symb of
       Just VarSymbol {_varSymbolTy, _varSymbolStorage} -> do
         return
           Exp
             { _expAnnot = PtrTy {ptrTyElemTy = _varSymbolTy},
-              _expInner = TakeAddress {takeAddressId}
+              _expInner = TakeAddressExp {takeAddressId}
             }
       Just ArgSymbol {_argSymbolTy, _argSymbolStorage} -> do
         return
           Exp
             { _expAnnot = PtrTy {ptrTyElemTy = _argSymbolTy},
-              _expInner = TakeAddress {takeAddressId}
+              _expInner = TakeAddressExp {takeAddressId}
             }
       Just FunSymbol {_funSymbolTy} -> do
         addErrorInState ("Cannot take address of function: " ++ takeAddressId ++ " of type: " ++ show _funSymbolTy)
-        return $ annotateIllegalExpAsVoid (TakeAddress {takeAddressId})
+        return $ annotateIllegalExpAsVoid (TakeAddressExp {takeAddressId})
       Nothing -> do
         addErrorInState ("Undefined variable: " ++ takeAddressId)
-        return $ annotateIllegalExpAsVoid (TakeAddress {takeAddressId})
+        return $ annotateIllegalExpAsVoid (TakeAddressExp {takeAddressId})
 
 mkTypedLetStmt :: VarDef -> TypedExp -> Maybe StorageSpecifier -> TypedStmt
 mkTypedLetStmt varDef expression storage = LetStmt {letVarDef = varDef, letExp = expression, letStorage = storage}
@@ -336,7 +337,16 @@ typeStmt stmt = case stmt of
     when (expTy /= varTy) $
       addErrorInState ("Type mismatch in variable definition: expected " ++ show varTy ++ ", got " ++ show expTy)
 
-    insertVarInState letVarDef
+    case letStorage of
+      Just Auto -> do
+        insertVarInState letVarDef $ VarAutoStack 0
+      Nothing -> do
+        insertVarInState letVarDef $ VarAutoStack 0
+      Just Static -> do
+        insertVarInState letVarDef $ VarStatic 0
+      Just Extern -> do
+        -- unsupported for now
+        addErrorInState "Internal error: Extern storage specifier is not supported in this context"
 
     return $ mkTypedLetStmt letVarDef letExp' letStorage
   LetArrStmt {letArrVarDef, letArrSize, letArrElems, letArrStorage} -> do
@@ -355,7 +365,18 @@ typeStmt stmt = case stmt of
       addErrorInState ("Array size mismatch: expected " ++ show letArrSize ++ ", got " ++ show (length letArrElems))
 
     let arrDef = letArrVarDef & varDefTy .~ ArrTy {arrTyElemTy = varTy, arrTySize = letArrSize}
-    insertVarInState arrDef
+
+    case letArrStorage of
+      Just Auto -> do
+        insertVarInState arrDef $ VarAutoStack 0
+      Nothing -> do
+        insertVarInState arrDef $ VarAutoStack 0
+      Just Static -> do
+        insertVarInState arrDef $ VarStatic 0
+      Just Extern -> do
+        -- unsupported for now
+        addErrorInState "Internal error: Extern storage specifier is not supported in this context"
+
     return $ mkTypedLetArrStmt letArrVarDef letArrSize letArrElems' letArrStorage
   AssignArrStmt {assignArrId, assignArrIndex, assignArrExp} -> do
     symb <- lookupSymbolInState assignArrId
