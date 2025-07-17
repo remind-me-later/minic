@@ -227,17 +227,6 @@ allocateAutoVarStackSlot identifier blockId' st =
         FunSymbol {} -> error $ "Cannot allocate auto stack slot for function symbol: " ++ show identifier
     Nothing -> error $ "Symbol " ++ identifier ++ " not found in block " ++ show blockId'
 
--- allocateFunArgStackSlot :: Id -> BlockId -> SymbolTable -> SymbolTable
--- allocateFunArgStackSlot identifier blockId' st =
---   case st ^? blockEnvs . ix blockId' . envSymbolMap . ix identifier of
---     Just symbol ->
---       let size = sizeOf (symbol ^. symbolTy)
---           newOffset = st ^. currentArgOffset + size
---        in st
---             & blockEnvs . ix blockId' . envSymbolMap . ix identifier . stackOffset ?~ st ^. currentArgOffset
---             & currentArgOffset .~ newOffset
---     Nothing -> error $ "Symbol " ++ identifier ++ " not found in block " ++ show blockId'
-
 allocateTempRegister :: Id -> BlockId -> SymbolTable -> SymbolTable
 allocateTempRegister identifier blockId' st =
   case st ^? blockEnvs . ix blockId' . envSymbolMap . ix identifier of
