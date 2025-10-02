@@ -1,10 +1,8 @@
-{-# LANGUAGE ApplicativeDo #-}
-
 module Main (main) where
 
-import CLI.Commands
-import CLI.Executor
-import Options.Applicative
+import CLI.Commands (Options (optCommand), opts)
+import CLI.Executor (executeCommand)
+import Options.Applicative (execParser)
 
 main :: IO ()
 main = do
