@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module SymbolTable
   ( BlockId,
     FunctionId,
@@ -94,16 +92,17 @@ insertVar varDef varSymbolStorage' blockId' st =
 
 insertArg :: VarDef -> BlockId -> SymbolTable -> SymbolTable
 insertArg varDef blockId' st@SymbolTable {_blockEnvs} =
-  let newSymbol =
+  let offset = st ^. currentArgOffset
+      newSymbol =
         ArgSymbol
           { _argSymbolId = varDef ^. varDefId,
             _argSymbolTy = varDef ^. varDefTy,
-            _argSymbolStorage = ArgNormal (st ^. currentArgOffset)
+            _argSymbolStorage = ArgNormal {argSymbolStorageOffset = offset}
           }
       newSt =
         st
-          & blockEnvs . ix blockId' . envSymbolMap . at (varDef ^. varDefId) ?~ newSymbol
           & currentArgOffset %~ (+ sizeOf (varDef ^. varDefTy))
+          & blockEnvs . ix blockId' . envSymbolMap . at (varDef ^. varDefId) ?~ newSymbol
    in newSt
 
 openEnv :: BlockId -> BlockId -> SymbolTable -> SymbolTable
