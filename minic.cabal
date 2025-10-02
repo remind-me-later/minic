@@ -40,7 +40,7 @@ library
     default-extensions: Strict
 
     -- Other library packages from which modules are imported.
-    build-depends:    base >= 4.21
+    build-depends:    base >= 4.18
                         , containers >= 0.7
                         , parsec >= 3.1
                         , mtl >= 2.3
@@ -57,7 +57,7 @@ executable minic
     other-modules:    CLI.Commands
                     , CLI.Executor
     default-extensions: Strict
-    build-depends:    base >= 4.21
+    build-depends:    base >= 4.18
                         , optparse-applicative >= 0.19
                         , containers >= 0.7
                         , minic
