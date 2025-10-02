@@ -33,6 +33,10 @@ library
                     Pipeline
                     CompilerPipeline
 
+    other-modules:    Ast.Semant.State
+                    , Ast.Semant.Expressions
+                    , Ast.Semant.Statements
+
     default-extensions: Strict
 
     -- Other library packages from which modules are imported.
@@ -50,6 +54,8 @@ library
 executable minic
     import:           warnings
     main-is:          Main.hs
+    other-modules:    CLI.Commands
+                    , CLI.Executor
     default-extensions: Strict
     build-depends:    base >= 4.17
                         , optparse-applicative >= 0.19

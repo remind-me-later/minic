@@ -4,10 +4,10 @@ my_data_start:
 .section .text
 .globl _start
 
-.extern print_char
-.type print_char, @function
 .extern print
 .type print, @function
+.extern print_char
+.type print_char, @function
 _start:
 	movq %rsp, %rbp
 	subq $24, %rsp

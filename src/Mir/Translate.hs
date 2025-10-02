@@ -258,19 +258,24 @@ transStmt stmt
               varSymbol@VarSymbol {} ->
                 case _varSymbolStorage varSymbol of
                   VarAutoStack {} -> do
-                    case _varAddressTaken varSymbol of
-                      False -> do
-                        transExp letExp
-                        t <- use tmp
-                        symbolTable %= allocateTempRegister varDefId' tsBlockId'
-                        stackOp <- idToStackOperand varDefId'
-                        addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
-                      True -> do
-                        transExp letExp
-                        t <- use tmp
-                        symbolTable %= allocateAutoVarStackSlot varDefId' tsBlockId'
-                        stackOp <- idToStackOperand varDefId'
-                        addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+                    ( if _varAddressTaken varSymbol
+                        then
+                          ( do
+                              transExp letExp
+                              t <- use tmp
+                              symbolTable %= allocateAutoVarStackSlot varDefId' tsBlockId'
+                              stackOp <- idToStackOperand varDefId'
+                              addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+                          )
+                        else
+                          ( do
+                              transExp letExp
+                              t <- use tmp
+                              symbolTable %= allocateAutoVarStackSlot varDefId' tsBlockId'
+                              stackOp <- idToStackOperand varDefId'
+                              addInstsToBlock [Assign {instDst = stackOp, instSrc = TempOperand t}]
+                          )
+                      )
                   VarAutoTemp {} -> do
                     error $ "Internal error: Decision about temporary variable: " ++ varDefId' ++ " should be made during translation"
                   VarStatic {} -> do
